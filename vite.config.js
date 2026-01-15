@@ -6,6 +6,7 @@ export default defineConfig({
   // Vite 的配置项
   base: '/Meeting-System/',  
   build: {
-    outDir: 'dist'  
+    outDir: 'dist' ,
+    assetsDir: 'assets' 
   }
 })
