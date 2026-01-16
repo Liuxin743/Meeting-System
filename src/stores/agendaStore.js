@@ -75,8 +75,10 @@ export const useAgendaStore = defineStore('agenda', () => {
       id: agendaId,
       title: newAgenda.title || '未命名议程',
       time: agendaTime,
-      tags: [],
-      remark: '',
+      // 支持接收 tags 参数，无则默认空数组
+      tags: newAgenda.tags || [],
+      // 支持接收 remark 参数，无则默认空字符串
+      remark: newAgenda.remark || '',
       isCollected: false
     };
     agendaList.value.push(agenda);
@@ -84,7 +86,7 @@ export const useAgendaStore = defineStore('agenda', () => {
     return agendaId;
   };
 
-  // 9.更新议程（标题/时间）
+  // 9. 更新议程（标题/时间）
   const updateAgenda = (agendaId, updateData) => {
     const agenda = agendaList.value.find(item => item.id === agendaId);
     if (agenda) {

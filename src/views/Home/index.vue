@@ -52,9 +52,23 @@
           + 创建新议程
         </button>
 
+        <!-- 新增：导入 Markdown 文档按钮 -->
+        <button class="import-md-btn" @click="triggerMdUpload">
+          📄 导入 Markdown 文档生成议程
+        </button>
+
+        <!-- 隐藏的文件上传组件（仅用于接收 .md 文件） -->
+        <input
+          ref="mdFileInput"
+          type="file"
+          accept=".md"
+          class="hidden-file-input"
+          @change="handleMdFileUpload"
+        />
+
         <!-- 加载/错误提示 -->
-        <div class="loading-mask" v-if="loading">
-          <div class="loading-content">加载中...</div>
+        <div class="loading-mask" v-if="loading || parsingMd">
+          <div class="loading-content">{{ parsingMd ? '正在解析Markdown文档...' : '加载中...' }}</div>
         </div>
         <div class="error-bar" v-if="errorMsg" @click="clearErrorMsg">
           ❌ {{ errorMsg }} <span class="error-close">×</span>
@@ -62,7 +76,7 @@
 
         <!-- 议程列表 -->
         <div class="agenda-list">
-          <div class="empty-tip" v-if="agendaList.length === 0 && !loading">
+          <div class="empty-tip" v-if="agendaList.length === 0 && !loading && !parsingMd">
             暂无会议议程，点击添加创建吧~
           </div>
           <div
@@ -311,6 +325,8 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAgendaStore } from '../../stores/agendaStore'
 import { useScheduleStore } from '../../stores/scheduleStore'
+// 引入 marked 用于解析 Markdown
+import { marked } from 'marked'
 
 // 初始化Pinia仓库
 const agendaStore = useAgendaStore()
@@ -353,10 +369,14 @@ const editAgenda = ref({
   time: ""
 })
 
-// 新增：会议提醒相关响应式数据（存储定时器，避免内存泄漏）
+// 会议提醒相关响应式数据（存储定时器，避免内存泄漏）
 const reminderTimers = ref([])
 
-// 工具方法：格式化当前时间
+// Markdown 上传相关响应式数据
+const mdFileInput = ref(null) // 文件上传组件引用
+const parsingMd = ref(false) // 是否正在解析 Markdown
+
+// 工具方法：格式化当前时间（用于自动补全议程时间）
 const formatCurrentDateTime = () => {
   const now = new Date()
   const year = now.getFullYear()
@@ -367,14 +387,14 @@ const formatCurrentDateTime = () => {
   return `${year}-${month}-${day}T${hour}:${minute}`
 }
 
-// 新增：工具方法1 - 验证日期是否为未来日期（有效日期）
+// 工具方法1 - 验证日期是否为未来日期（有效日期）
 const isFutureDate = (date) => {
   if (!(date instanceof Date)) return false
   const now = new Date()
   return date.getTime() > now.getTime()
 }
 
-// 新增：工具方法2 - 格式化日历日期（符合iCal标准，用于唤起手机日历）
+// 工具方法2 - 格式化日历日期（符合iCal标准，用于唤起手机日历）
 const formatCalendarDate = (date) => {
   if (!(date instanceof Date)) return ''
   return date.toISOString()
@@ -383,7 +403,7 @@ const formatCalendarDate = (date) => {
     .replace(/\.\d{3}Z/, 'Z')
 }
 
-// 新增：工具方法3 - 格式化时间显示（用于提醒提示）
+// 工具方法3 - 格式化时间显示（用于提醒提示）
 const formatLocaleTime = (date) => {
   if (!(date instanceof Date)) return ''
   return date.toLocaleString('zh-CN', {
@@ -407,14 +427,14 @@ onMounted(() => {
   }
 })
 
-// 新增：页面卸载时清除所有提醒定时器（避免内存泄漏、无效通知）
+// 页面卸载时清除所有提醒定时器（避免内存泄漏、无效通知）
 onUnmounted(() => {
   reminderTimers.value.forEach(item => {
     clearTimeout(item.timer)
   })
 })
 
-// 提示方法
+// 提示方法（Toast 消息提示）
 const showToast = (text) => {
   toastText.value = text
   toastVisible.value = true
@@ -423,17 +443,19 @@ const showToast = (text) => {
   }, 2000)
 }
 
+// 清除错误提示
 const clearErrorMsg = () => {
   errorMsg.value = ""
 }
 
-// 标签相关方法
+// 标签相关方法 - 打开标签编辑弹窗
 const openTagDialog = (agenda) => {
   currentAgendaId.value = agenda.id
   currentAgendaTags.value = [...agenda.tags]
   tagDialogVisible.value = true
 }
 
+// 标签相关方法 - 切换标签选中状态
 const toggleTag = (tag) => {
   const index = currentAgendaTags.value.findIndex(item => item === tag)
   if (index > -1) {
@@ -443,6 +465,7 @@ const toggleTag = (tag) => {
   }
 }
 
+// 标签相关方法 - 保存标签修改
 const saveTags = () => {
   if (!currentAgendaId.value) return
   agendaStore.saveAgendaTags(currentAgendaId.value, currentAgendaTags.value)
@@ -450,13 +473,14 @@ const saveTags = () => {
   showToast("标签保存成功")
 }
 
-// 备注相关方法
+// 备注相关方法 - 打开备注编辑弹窗
 const openRemarkDialog = (agenda) => {
   currentAgendaId.value = agenda.id
   currentRemark.value = agenda.remark || ""
   remarkDialogVisible.value = true
 }
 
+// 备注相关方法 - 保存备注修改
 const saveRemark = () => {
   if (!currentAgendaId.value) return
   agendaStore.saveAgendaRemark(currentAgendaId.value, currentRemark.value.trim())
@@ -464,17 +488,19 @@ const saveRemark = () => {
   showToast("备注保存成功")
 }
 
+// 备注相关方法 - 删除备注
 const deleteAgendaRemark = (agendaId) => {
   agendaStore.saveAgendaRemark(agendaId, "")
   showToast("备注已删除")
 }
 
-// 分享相关方法
+// 分享相关方法 - 打开分享弹窗
 const openShareDialog = (agenda) => {
   currentShareLink.value = `https://meeting-system.com/agenda/${agenda.id}?title=${encodeURIComponent(agenda.title)}`
   shareDialogVisible.value = true
 }
 
+// 分享相关方法 - 复制分享链接
 const copyLink = () => {
   navigator.clipboard.writeText(currentShareLink.value).then(() => {
     showToast("链接已复制到剪贴板")
@@ -483,7 +509,7 @@ const copyLink = () => {
   })
 }
 
-// 收藏相关方法
+// 收藏相关方法 - 切换议程收藏状态
 const handleToggleCollect = (agendaId) => {
   agendaStore.toggleAgendaCollect(agendaId)
   const latestAgenda = agendaList.value.find(item => item.id === agendaId)
@@ -492,9 +518,9 @@ const handleToggleCollect = (agendaId) => {
   }
 }
 
-// 删除议程方法
+// 删除议程方法 - 删除指定议程并清除对应定时器
 const handleDeleteAgenda = (agendaId) => {
-  // 新增：删除议程时，同时清除对应的提醒定时器
+  // 删除议程时，同时清除对应的提醒定时器
   reminderTimers.value = reminderTimers.value.filter(item => {
     if (item.agendaId === agendaId) {
       clearTimeout(item.timer)
@@ -510,7 +536,7 @@ const handleDeleteAgenda = (agendaId) => {
   }
 }
 
-// 创建议程相关方法
+// 创建议程相关方法 - 打开新建议程弹窗
 const openCreateDialog = () => {
   newAgenda.value = {
     title: "",
@@ -519,17 +545,17 @@ const openCreateDialog = () => {
   createDialogVisible.value = true
 }
 
+// 创建议程相关方法 - 保存新建议程
 const handleCreateAgenda = () => {
   if (!newAgenda.value.title.trim()) {
-    showToast("请输入议程标题")
-    return
+    return showToast("请输入议程标题")
   }
   agendaStore.addNewAgenda(newAgenda.value)
   createDialogVisible.value = false
   showToast("议程创建成功")
 }
 
-// 编辑议程相关方法
+// 编辑议程相关方法 - 打开编辑议程弹窗
 const openEditDialog = (agenda) => {
   const editTime = agenda.time.replace(' ', 'T')
   editAgenda.value = {
@@ -540,10 +566,10 @@ const openEditDialog = (agenda) => {
   editDialogVisible.value = true
 }
 
+// 编辑议程相关方法 - 保存编辑后的议程
 const handleEditAgenda = () => {
   if (!editAgenda.value.title.trim()) {
-    showToast("请输入议程标题")
-    return
+    return showToast("请输入议程标题")
   }
   agendaStore.updateAgenda(editAgenda.value.id, {
     title: editAgenda.value.title,
@@ -566,7 +592,6 @@ const jumpToMeetingFlow = () => {
  */
 const setBrowserReminder = (agenda) => {
   // 1. 解析议程时间
-  console.log('agenda.time:', agenda.time);
   const agendaTimeStr = agenda.time.replace(' ', 'T')
   const agendaDate = new Date(agendaTimeStr)
   const reminderDate = new Date(agendaDate.getTime() - 15 * 60 * 1000) // 提前15分钟
@@ -712,6 +737,171 @@ END:VCALENDAR`.replace(/\n/g, '')
 
   // 8. 提示用户
   showToast(isIOS ? '日历文件已生成，请导入手机日历' : '正在唤起日历APP，请稍候')
+}
+
+/**
+ * Markdown 相关：触发文件上传（点击按钮唤起文件选择框）
+ */
+const triggerMdUpload = () => {
+  mdFileInput.value.click()
+}
+
+/**
+ * Markdown 相关：处理上传的 Markdown 文件
+ * @param {Event} e 文件上传事件
+ */
+const handleMdFileUpload = (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+
+  // 校验文件格式（仅支持 .md）
+  if (file.type !== 'text/markdown' && !file.name.endsWith('.md')) {
+    return showToast('请上传合法的 .md 格式文件')
+  }
+
+  // 读取文件内容
+  parsingMd.value = true
+  showToast('正在解析 Markdown 文档，请稍候...')
+  const reader = new FileReader()
+
+  reader.onload = (event) => {
+    try {
+      const mdContent = event.target.result
+      // 解析 Markdown 内容并生成议程
+      const agendaListFromMd = parseMdToAgenda(mdContent)
+      // 将生成的议程添加到仓库
+      addAgendaFromMd(agendaListFromMd)
+      showToast(`解析成功！共生成 ${agendaListFromMd.length} 条议程`)
+    } catch (err) {
+      console.error('解析 Markdown 失败：', err)
+      showToast('解析 Markdown 失败，请检查文档格式')
+    } finally {
+      parsingMd.value = false
+      // 重置文件上传组件（允许重复上传同一文件）
+      mdFileInput.value.value = ''
+    }
+  }
+
+  reader.onerror = () => {
+    showToast('读取文件失败，请重试')
+    parsingMd.value = false
+    mdFileInput.value.value = ''
+  }
+
+  // 以文本格式读取文件
+  reader.readAsText(file, 'utf-8')
+}
+
+/**
+ * Markdown 相关：精准解析 Markdown 内容，生成有效议程（解决标题过长、备注无效问题）
+ * @param {string} mdContent Markdown 文档内容
+ * @returns {Array} 生成的有效议程列表
+ */
+const parseMdToAgenda = (mdContent) => {
+  const agendaList = []
+  if (!mdContent || mdContent.trim() === '') return agendaList
+
+  // 步骤1：预处理（过滤无用内容+统一格式）
+  const processedContent = mdContent
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\|[\s\S]*?\|/g, '')
+    .trim()
+
+  // 步骤2：解析为纯文本（过滤HTML标签）
+  let htmlContent = marked.parse(processedContent, { gfm: true, breaks: true, silent: true })
+  const plainText = htmlContent
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .trim()
+
+  // 步骤3：智能拆分议程段落（空行分隔优先，确保拆分出多条议程）
+  let agendaParagraphs = plainText.split(/\n{2,}/).filter(p => p.trim())
+  if (agendaParagraphs.length <= 1) {
+    agendaParagraphs = plainText
+      .replace(/([。！？；])/g, '$1\n')
+      .replace(/(\d+\.|\d+\)|\*|-)/g, '\n$1')
+      .split(/\n/)
+      .filter(p => p.trim().length > 5)
+  }
+  const uniqueParagraphs = [...new Set(agendaParagraphs)].filter(p => p.trim())
+
+  // 步骤4：遍历段落，精准拆分标题与备注
+  uniqueParagraphs.forEach(paragraph => {
+    const cleanParagraph = paragraph.trim()
+    if (cleanParagraph.length < 3) return
+
+    const currentAgenda = { title: '', time: '', tags: [], remark: '', isCollected: false }
+    const contentLines = cleanParagraph.split(/\n/).filter(line => line.trim())
+
+    // 核心优化：精准拆分标题与备注
+    const titleMatch = cleanParagraph.match(/^([^：；。！?]{2,10})[：；。！?]?/)
+    if (titleMatch && titleMatch[1].trim()) {
+      // 有明确标题：提取简短标题（2-10字）
+      currentAgenda.title = titleMatch[1].trim()
+      // 提取备注：标题之后的所有内容
+      currentAgenda.remark = cleanParagraph.replace(titleMatch[0], '').trim() || '无详细内容'
+    } else {
+      // 无明确标题：取前10字为标题，剩余为备注
+      currentAgenda.title = cleanParagraph.substring(0, 10).trim()
+      currentAgenda.remark = cleanParagraph.substring(10).trim() || '无详细内容'
+    }
+
+    // 补全字段（时间、标签等）
+    completeAgendaData(currentAgenda)
+
+    // 去重添加（避免重复议程）
+    const isDuplicate = agendaList.some(item => item.title === currentAgenda.title)
+    if (!isDuplicate && currentAgenda.title) {
+      agendaList.push(currentAgenda)
+    }
+  })
+
+  // 兜底：如果未提取到任何议程，生成一条默认议程
+  if (agendaList.length === 0) {
+    const defaultAgenda = {
+      title: '未命名议程',
+      time: formatCurrentDateTime().replace('T', ' '),
+      tags: ['待讨论'],
+      remark: plainText.substring(0, 100).trim() || '无有效内容',
+      isCollected: false
+    }
+    agendaList.push(defaultAgenda)
+  }
+
+  return agendaList
+}
+
+/**
+ * Markdown 相关：补全议程缺失的默认字段
+ * @param {object} agenda 待补全的议程对象
+ */
+const completeAgendaData = (agenda) => {
+  agenda.title = agenda.title?.trim() || `未命名议程_${Date.now().toString().slice(-6)}`
+  agenda.time = agenda.time?.trim() || formatCurrentDateTime().replace('T', ' ')
+  agenda.tags = agenda.tags?.length ? agenda.tags : ['待讨论']
+  agenda.remark = agenda.remark?.trim() || '无详细备注'
+  agenda.isCollected = !!agenda.isCollected
+}
+
+/**
+ * Markdown 相关：将解析后的议程添加到 Pinia 仓库并持久化
+ * @param {Array} agendaListFromMd 从 Markdown 解析出的议程列表
+ */
+const addAgendaFromMd = (agendaListFromMd) => {
+  if (!agendaListFromMd || agendaListFromMd.length === 0) return
+
+  agendaListFromMd.forEach(agenda => {
+    agendaStore.addNewAgenda({
+      title: agenda.title,
+      time: agenda.time,
+      tags: agenda.tags,
+      remark: agenda.remark
+    })
+  })
 }
 </script>
 
@@ -871,6 +1061,31 @@ END:VCALENDAR`.replace(/\n/g, '')
 
 .create-agenda-btn:hover {
   background-color: #1677ff;
+}
+
+/* 导入 Markdown 按钮样式 */
+.import-md-btn {
+  background-color: #52c41a;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.import-md-btn:hover {
+  background-color: #47a814;
+}
+
+/* 隐藏文件上传组件 */
+.hidden-file-input {
+  display: none;
 }
 
 /* 加载/错误提示样式 */
