@@ -35,7 +35,7 @@
         </div>
       </div>
 
-      <!-- 新增：创建新议程按钮（迁移自首页） -->
+      <!-- 创建新议程 -->
       <button class="create-agenda-btn" @click="openCreateDialog" style="margin: 10px 0;">
         + 创建新议程
       </button>
@@ -77,7 +77,7 @@
       </div>
     </div>
 
-    <!-- 新增：创建议程弹窗（迁移自首页） -->
+    <!-- 创建议程弹窗 -->
     <div
       class="dialog-mask"
       v-if="createDialogVisible"
@@ -204,14 +204,14 @@ const currentRemarkAgenda = reactive({
 const collectedAgendas = ref([])
 const remarkAgendas = ref([])
 
-// 新增：创建议程相关响应式数据（迁移自首页）
+// 创建议程相关响应式数据
 const createDialogVisible = ref(false)
 const newAgenda = ref({
   title: "",
   time: ""
 })
 
-// 新增：格式化当前时间（用于自动补全议程时间，与首页一致）
+// 格式化当前时间
 const formatCurrentDateTime = () => {
   const now = new Date()
   const year = now.getFullYear()
@@ -319,7 +319,7 @@ const getRemarkSummary = (htmlContent) => {
   return plainText.length > 20 ? `${plainText.slice(0, 20)}...` : plainText
 }
 
-// 新增：打开新建议程弹窗（迁移自首页）
+// 打开新建议程弹窗
 const openCreateDialog = () => {
   newAgenda.value = {
     title: "",
@@ -328,14 +328,14 @@ const openCreateDialog = () => {
   createDialogVisible.value = true
 }
 
-// 新增：保存新建议程（迁移自首页，与首页逻辑一致）
+// 保存新建议程
 const handleCreateAgenda = () => {
   if (!newAgenda.value.title.trim()) {
     return alert("请输入议程标题")
   }
   agendaStore.addNewAgenda(newAgenda.value)
   createDialogVisible.value = false
-  // 刷新收藏/备注列表（可选，确保创建后数据同步）
+  // 刷新收藏/备注列表
   refreshAgendaLists()
   alert("议程创建成功")
 }
@@ -704,7 +704,7 @@ onMounted(() => {
   }
 }
 
-/* 新增：创建议程按钮样式（与首页保持一致） */
+/* 创建议程按钮样式 */
 .create-agenda-btn {
   background-color: #1989fa;
   color: #fff;
@@ -719,12 +719,14 @@ onMounted(() => {
   width: 100%;
   transition: background-color 0.3s ease;
 }
-
+.dialog-confirm-btn{
+  width: 50%;
+}
 .create-agenda-btn:hover {
   background-color: #1677ff;
 }
 
-/* 新增：创建议程弹窗样式补充 */
+/* 创建议程弹窗样式 */
 .form-item {
   margin-bottom: 16px;
 }
