@@ -35,6 +35,11 @@
         </div>
       </div>
 
+      <!-- 新增：创建新议程按钮（迁移自首页） -->
+      <button class="create-agenda-btn" @click="openCreateDialog" style="margin: 10px 0;">
+        + 创建新议程
+      </button>
+
       <!-- 我的收藏议程 -->
       <div class="collection-card card-common" style="margin-top: 10px;">
         <h3 class="card-title">我的收藏</h3>
@@ -68,6 +73,44 @@
             </div>
             <van-icon name="arrow-right" size="16" color="#c8c9cc" class="remark-arrow" />
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增：创建议程弹窗（迁移自首页） -->
+    <div
+      class="dialog-mask"
+      v-if="createDialogVisible"
+      @click="createDialogVisible = false"
+    >
+      <div class="dialog-content" @click.stop>
+        <h3 class="dialog-title">创建新议程</h3>
+        <div class="form-item">
+          <label class="form-label">议程标题：</label>
+          <input
+            class="form-input"
+            v-model="newAgenda.title"
+            placeholder="请输入议程标题"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">议程时间：</label>
+          <input
+            class="form-input"
+            type="datetime-local"
+            v-model="newAgenda.time"
+          />
+        </div>
+        <div class="dialog-btn-group">
+          <button
+            class="dialog-cancel-btn"
+            @click="createDialogVisible = false"
+          >
+            取消
+          </button>
+          <button class="dialog-confirm-btn" @click="handleCreateAgenda">
+            确认创建
+          </button>
         </div>
       </div>
     </div>
@@ -157,9 +200,27 @@ const currentRemarkAgenda = reactive({
   remark: ''
 })
 
-//收藏/备注列表
+// 收藏/备注列表
 const collectedAgendas = ref([])
 const remarkAgendas = ref([])
+
+// 新增：创建议程相关响应式数据（迁移自首页）
+const createDialogVisible = ref(false)
+const newAgenda = ref({
+  title: "",
+  time: ""
+})
+
+// 新增：格式化当前时间（用于自动补全议程时间，与首页一致）
+const formatCurrentDateTime = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const hour = String(now.getHours()).padStart(2, '0')
+  const minute = String(now.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hour}:${minute}`
+}
 
 // 刷新收藏/备注列表
 const refreshAgendaLists = () => {
@@ -258,6 +319,27 @@ const getRemarkSummary = (htmlContent) => {
   return plainText.length > 20 ? `${plainText.slice(0, 20)}...` : plainText
 }
 
+// 新增：打开新建议程弹窗（迁移自首页）
+const openCreateDialog = () => {
+  newAgenda.value = {
+    title: "",
+    time: formatCurrentDateTime()
+  }
+  createDialogVisible.value = true
+}
+
+// 新增：保存新建议程（迁移自首页，与首页逻辑一致）
+const handleCreateAgenda = () => {
+  if (!newAgenda.value.title.trim()) {
+    return alert("请输入议程标题")
+  }
+  agendaStore.addNewAgenda(newAgenda.value)
+  createDialogVisible.value = false
+  // 刷新收藏/备注列表（可选，确保创建后数据同步）
+  refreshAgendaLists()
+  alert("议程创建成功")
+}
+
 // 初始化所有数据
 onMounted(() => {
   agendaStore.loadAgendaFromLocalStorage()
@@ -273,7 +355,6 @@ onMounted(() => {
   }
 })
 </script>
-
 
 <style scoped>
 .mine-view {
@@ -621,5 +702,62 @@ onMounted(() => {
     border-radius: 4px; 
     box-shadow: 0 0 0 2px rgba(25, 137, 250, 0.1); 
   }
+}
+
+/* 新增：创建议程按钮样式（与首页保持一致） */
+.create-agenda-btn {
+  background-color: #1989fa;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  transition: background-color 0.3s ease;
+}
+
+.create-agenda-btn:hover {
+  background-color: #1677ff;
+}
+
+/* 新增：创建议程弹窗样式补充 */
+.form-item {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.dialog-btn-group {
+  display: flex;
+  gap: 10px;
+}
+
+.dialog-cancel-btn {
+  flex: 1;
+  padding: 10px 0;
+  background-color: #f5f5f5;
+  color: #666;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
 }
 </style>

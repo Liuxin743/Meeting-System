@@ -1,24 +1,38 @@
 <template>
   <div class="home-page">
-    <!-- 1. 滚动内容区：适配tabbar，内容不被遮挡 -->
     <div class="home-scroll-content">
       <div class="page-content">
-        <!-- 会议倒计时卡片 -->
         <el-card class="mb-4" shadow="hover">
           <template #header>
-            <h3 class="card-title">会议倒计时</h3>
+            <h3 class="card-title">会议状态</h3>
           </template>
-          <div class="countdown-container">
-            <el-countdown
-              :time="coreScheduleTime.meetingTime"
-              format="DD 天 HH 时 mm 分 ss 秒"
-              class="countdown-text"
-            />
-            <div class="countdown-tip">会议即将开始，敬请准备</div>
-            <div class="countdown-enter">
-              <button class="enter-meeting-btn" @click="jumpToMeetingFlow">
-                点击进入会议流程
-              </button>
+          <div class="upcoming-container">
+            <div class="empty-tip" v-if="meetingStatusAgendas.length === 0 && !loading">
+              暂无相关会议议程
+            </div>
+            <div
+              class="upcoming-item"
+              v-for="agenda in meetingStatusAgendas"
+              :key="agenda.id"
+              :class="{
+                'status-ongoing': agenda.meetingStatus === 'ongoing', // 正在进行（橙色）
+                'status-upcoming': agenda.meetingStatus === 'upcoming', // 即将开始（绿色）
+                'status-ended': agenda.meetingStatus === 'ended' // 已结束（灰色）
+              }"
+            >
+              <div class="upcoming-header">
+                <div class="upcoming-title">{{ agenda.title }}</div>
+                <div class="upcoming-status-tag">
+                  {{ 
+                    agenda.meetingStatus === 'ongoing' ? '正在进行' : 
+                    agenda.meetingStatus === 'upcoming' ? '即将开始' : '已结束' 
+                  }}
+                </div>
+              </div>
+              <div class="upcoming-time">会议时间：{{ agenda.time }}</div>
+              <div class="upcoming-tags" v-if="agenda.tags.length > 0">
+                <span class="tag-item" v-for="tag in agenda.tags" :key="tag">{{ tag }}</span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -47,12 +61,7 @@
           </div>
         </el-card>
 
-        <!-- 创建议程按钮 -->
-        <button class="create-agenda-btn" @click="openCreateDialog">
-          + 创建新议程
-        </button>
-
-        <!-- 新增：导入 Markdown 文档按钮 -->
+        <!-- 导入 Markdown 文档按钮 -->
         <button class="import-md-btn" @click="triggerMdUpload">
           📄 导入 Markdown 文档生成议程
         </button>
@@ -77,7 +86,7 @@
         <!-- 议程列表 -->
         <div class="agenda-list">
           <div class="empty-tip" v-if="agendaList.length === 0 && !loading && !parsingMd">
-            暂无会议议程，点击添加创建吧~
+            暂无会议议程，前往「我的」页面创建吧~
           </div>
           <div
             class="agenda-item card-common"
@@ -116,7 +125,7 @@
               >
                 分享
               </button>
-              <!-- 新增：会议提醒按钮（贴合现有样式） -->
+              <!-- 会议提醒按钮 -->
               <button
                 class="btn-normal mini-btn"
                 style="background-color: #f0fff4; color: #52c41a;"
@@ -156,44 +165,6 @@
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 创建议程弹窗 -->
-    <div
-      class="dialog-mask"
-      v-if="createDialogVisible"
-      @click="createDialogVisible = false"
-    >
-      <div class="dialog-content" @click.stop>
-        <h3 class="dialog-title">创建新议程</h3>
-        <div class="form-item">
-          <label class="form-label">议程标题：</label>
-          <input
-            class="form-input"
-            v-model="newAgenda.title"
-            placeholder="请输入议程标题"
-          />
-        </div>
-        <div class="form-item">
-          <label class="form-label">议程时间：</label>
-          <input
-            class="form-input"
-            type="datetime-local"
-            v-model="newAgenda.time"
-          />
-        </div>
-        <div class="dialog-btn-group">
-          <button
-            class="dialog-cancel-btn"
-            @click="createDialogVisible = false"
-          >
-            取消
-          </button>
-          <button class="dialog-confirm-btn" @click="handleCreateAgenda">
-            确认创建
-          </button>
         </div>
       </div>
     </div>
@@ -320,12 +291,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAgendaStore } from '../../stores/agendaStore'
 import { useScheduleStore } from '../../stores/scheduleStore'
-// 引入 marked 用于解析 Markdown
 import { marked } from 'marked'
 
 // 初始化Pinia仓库
@@ -334,9 +304,9 @@ const scheduleStore = useScheduleStore()
 
 // 解构仓库响应式数据
 const { agendaList } = storeToRefs(agendaStore)
-const { coreScheduleTime, notifications } = storeToRefs(scheduleStore)
+const { notifications } = storeToRefs(scheduleStore)
 
-// 初始化路由（用于跳转会议流程）
+// 初始化路由
 const router = useRouter()
 
 // 页面响应式数据
@@ -356,12 +326,6 @@ const currentRemark = ref("")
 const shareDialogVisible = ref(false)
 const currentShareLink = ref("")
 
-const createDialogVisible = ref(false)
-const newAgenda = ref({
-  title: "",
-  time: ""
-})
-
 const editDialogVisible = ref(false)
 const editAgenda = ref({
   id: null,
@@ -369,14 +333,64 @@ const editAgenda = ref({
   time: ""
 })
 
-// 会议提醒相关响应式数据（存储定时器，避免内存泄漏）
+// 会议提醒响应式数据
 const reminderTimers = ref([])
+const mdFileInput = ref(null)
+const parsingMd = ref(false)
 
-// Markdown 上传相关响应式数据
-const mdFileInput = ref(null) // 文件上传组件引用
-const parsingMd = ref(false) // 是否正在解析 Markdown
+// 筛选会议状态：即将开始/正在进行/已结束
+const meetingStatusAgendas = computed(() => {
+  if (!agendaList.value || agendaList.value.length === 0) return []
 
-// 工具方法：格式化当前时间（用于自动补全议程时间）
+  const now = new Date()
+  // 时间范围定义
+  const UPCOMING_RANGE = 2 * 60 * 60 * 1000 // 2小时
+  const ENDED_RANGE = 1 * 60 * 60 * 1000 // 1小时
+
+  return agendaList.value
+    .map(agenda => {
+      // 解析议程时间
+      const agendaTimeStr = agenda.time.replace(' ', 'T')
+      const agendaDate = new Date(agendaTimeStr)
+      const timeDiff = agendaDate.getTime() - now.getTime() 
+
+      // 标记状态
+      let meetingStatus = ''
+      if (timeDiff > 0 && timeDiff <= UPCOMING_RANGE) {
+        // 即将开始（绿色）
+        meetingStatus = 'upcoming'
+      } else if (timeDiff <= 0 && timeDiff >= -ENDED_RANGE) {
+        // 正在进行（橙色）
+        meetingStatus = 'ongoing'
+      } else if (timeDiff < -ENDED_RANGE) {
+        // 已结束（灰色）
+        meetingStatus = 'ended'
+      }
+
+      return {
+        ...agenda,
+        meetingStatus
+      }
+    })
+    .filter(agenda => agenda.meetingStatus) // 只保留有状态的议程，过滤掉超出2小时未开始/已结束过久的
+    .sort((a, b) => {
+      // 优先级：正在进行 > 即将开始 > 已结束
+      const statusOrder = { ongoing: 0, upcoming: 1, ended: 2 }
+      if (a.meetingStatus !== b.meetingStatus) {
+        return statusOrder[a.meetingStatus] - statusOrder[b.meetingStatus]
+      }
+      // 自动叠加
+      const aTime = new Date(a.time.replace(' ', 'T')).getTime()
+      const bTime = new Date(b.time.replace(' ', 'T')).getTime()
+      return aTime - bTime
+    })
+})
+
+// 会议状态列表实时刷新
+watch(agendaList, () => {
+})
+
+// 格式化当前时间
 const formatCurrentDateTime = () => {
   const now = new Date()
   const year = now.getFullYear()
@@ -387,14 +401,14 @@ const formatCurrentDateTime = () => {
   return `${year}-${month}-${day}T${hour}:${minute}`
 }
 
-// 工具方法1 - 验证日期是否为未来日期（有效日期）
+//验证日期是否为未来日期（用于提醒功能）
 const isFutureDate = (date) => {
   if (!(date instanceof Date)) return false
   const now = new Date()
   return date.getTime() > now.getTime()
 }
 
-// 工具方法2 - 格式化日历日期（符合iCal标准，用于唤起手机日历）
+// 格式化日历日期（符合iCal标准，用于手机日历导入）
 const formatCalendarDate = (date) => {
   if (!(date instanceof Date)) return ''
   return date.toISOString()
@@ -403,7 +417,7 @@ const formatCalendarDate = (date) => {
     .replace(/\.\d{3}Z/, 'Z')
 }
 
-// 工具方法3 - 格式化时间显示（用于提醒提示）
+// 格式化时间显示（用于提醒通知的时间展示）
 const formatLocaleTime = (date) => {
   if (!(date instanceof Date)) return ''
   return date.toLocaleString('zh-CN', {
@@ -414,7 +428,7 @@ const formatLocaleTime = (date) => {
   })
 }
 
-// 页面挂载初始化
+// 加载本地存储的议程数据
 onMounted(() => {
   loading.value = true
   try {
@@ -427,14 +441,14 @@ onMounted(() => {
   }
 })
 
-// 页面卸载时清除所有提醒定时器（避免内存泄漏、无效通知）
+// 清除所有未触发的提醒定时器
 onUnmounted(() => {
   reminderTimers.value.forEach(item => {
     clearTimeout(item.timer)
   })
 })
 
-// 提示方法（Toast 消息提示）
+// 提示方法
 const showToast = (text) => {
   toastText.value = text
   toastVisible.value = true
@@ -443,19 +457,19 @@ const showToast = (text) => {
   }, 2000)
 }
 
-// 清除错误提示
+// 清除错误提示条
 const clearErrorMsg = () => {
   errorMsg.value = ""
 }
 
-// 标签相关方法 - 打开标签编辑弹窗
+// 打开标签选择弹窗
 const openTagDialog = (agenda) => {
   currentAgendaId.value = agenda.id
   currentAgendaTags.value = [...agenda.tags]
   tagDialogVisible.value = true
 }
 
-// 标签相关方法 - 切换标签选中状态
+// 切换标签选中状态
 const toggleTag = (tag) => {
   const index = currentAgendaTags.value.findIndex(item => item === tag)
   if (index > -1) {
@@ -465,7 +479,7 @@ const toggleTag = (tag) => {
   }
 }
 
-// 标签相关方法 - 保存标签修改
+// 保存标签修改
 const saveTags = () => {
   if (!currentAgendaId.value) return
   agendaStore.saveAgendaTags(currentAgendaId.value, currentAgendaTags.value)
@@ -473,14 +487,14 @@ const saveTags = () => {
   showToast("标签保存成功")
 }
 
-// 备注相关方法 - 打开备注编辑弹窗
+// 打开备注编辑弹窗
 const openRemarkDialog = (agenda) => {
   currentAgendaId.value = agenda.id
   currentRemark.value = agenda.remark || ""
   remarkDialogVisible.value = true
 }
 
-// 备注相关方法 - 保存备注修改
+// 保存备注修改
 const saveRemark = () => {
   if (!currentAgendaId.value) return
   agendaStore.saveAgendaRemark(currentAgendaId.value, currentRemark.value.trim())
@@ -488,19 +502,19 @@ const saveRemark = () => {
   showToast("备注保存成功")
 }
 
-// 备注相关方法 - 删除备注
+// 删除备注
 const deleteAgendaRemark = (agendaId) => {
   agendaStore.saveAgendaRemark(agendaId, "")
   showToast("备注已删除")
 }
 
-// 分享相关方法 - 打开分享弹窗
+// 打开分享弹窗
 const openShareDialog = (agenda) => {
   currentShareLink.value = `https://meeting-system.com/agenda/${agenda.id}?title=${encodeURIComponent(agenda.title)}`
   shareDialogVisible.value = true
 }
 
-// 分享相关方法 - 复制分享链接
+// 复制分享链接到剪贴板
 const copyLink = () => {
   navigator.clipboard.writeText(currentShareLink.value).then(() => {
     showToast("链接已复制到剪贴板")
@@ -509,7 +523,7 @@ const copyLink = () => {
   })
 }
 
-// 收藏相关方法 - 切换议程收藏状态
+// 切换议程收藏状态
 const handleToggleCollect = (agendaId) => {
   agendaStore.toggleAgendaCollect(agendaId)
   const latestAgenda = agendaList.value.find(item => item.id === agendaId)
@@ -518,9 +532,9 @@ const handleToggleCollect = (agendaId) => {
   }
 }
 
-// 删除议程方法 - 删除指定议程并清除对应定时器
+// 删除指定议程并清除对应提醒定时器
 const handleDeleteAgenda = (agendaId) => {
-  // 删除议程时，同时清除对应的提醒定时器
+  // 清除该议程对应的提醒定时器（如果存在）
   reminderTimers.value = reminderTimers.value.filter(item => {
     if (item.agendaId === agendaId) {
       clearTimeout(item.timer)
@@ -529,6 +543,7 @@ const handleDeleteAgenda = (agendaId) => {
     return true
   })
 
+  // 确认删除
   if (confirm("确定要删除该议程吗？删除后不可恢复")) {
     agendaStore.agendaList = agendaStore.agendaList.filter(item => item.id !== agendaId)
     localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
@@ -536,26 +551,7 @@ const handleDeleteAgenda = (agendaId) => {
   }
 }
 
-// 创建议程相关方法 - 打开新建议程弹窗
-const openCreateDialog = () => {
-  newAgenda.value = {
-    title: "",
-    time: formatCurrentDateTime()
-  }
-  createDialogVisible.value = true
-}
-
-// 创建议程相关方法 - 保存新建议程
-const handleCreateAgenda = () => {
-  if (!newAgenda.value.title.trim()) {
-    return showToast("请输入议程标题")
-  }
-  agendaStore.addNewAgenda(newAgenda.value)
-  createDialogVisible.value = false
-  showToast("议程创建成功")
-}
-
-// 编辑议程相关方法 - 打开编辑议程弹窗
+// 打开编辑弹窗
 const openEditDialog = (agenda) => {
   const editTime = agenda.time.replace(' ', 'T')
   editAgenda.value = {
@@ -566,7 +562,7 @@ const openEditDialog = (agenda) => {
   editDialogVisible.value = true
 }
 
-// 编辑议程相关方法 - 保存编辑后的议程
+// 保存编辑修改
 const handleEditAgenda = () => {
   if (!editAgenda.value.title.trim()) {
     return showToast("请输入议程标题")
@@ -579,15 +575,8 @@ const handleEditAgenda = () => {
   showToast("议程修改成功")
 }
 
-// 跳转至会议流程页面
-const jumpToMeetingFlow = () => {
-  router.push('/process').catch(err => {
-    console.warn('跳转异常：', err)
-  })
-}
-
 /**
- * 方法1：设置浏览器本地通知提醒（提前15分钟）
+ * 设置浏览器本地通知提醒（提前15分钟触发）
  * @param {object} agenda 议程对象
  */
 const setBrowserReminder = (agenda) => {
@@ -604,7 +593,7 @@ const setBrowserReminder = (agenda) => {
     return showToast('会议将在15分钟内开始，无法设置提前15分钟提醒')
   }
 
-  // 3. 检查并请求通知权限
+  // 3. 检查并请求浏览器通知权限
   if (Notification.permission !== 'granted') {
     Notification.requestPermission().then(permission => {
       if (permission !== 'granted') {
@@ -624,12 +613,12 @@ const setBrowserReminder = (agenda) => {
 }
 
 /**
- * 辅助方法：创建浏览器提醒定时器
+ * 创建浏览器提醒定时器
  * @param {object} agenda 议程对象
- * @param {Date} reminderDate 提醒日期
+ * @param {Date} reminderDate 提醒触发日期
  */
 const createBrowserReminderTimer = (agenda, reminderDate) => {
-  // 清除该议程已存在的提醒定时器（避免重复提醒）
+  // 先清除该议程已存在的提醒定时器，避免重复提醒
   reminderTimers.value = reminderTimers.value.filter(item => {
     if (item.agendaId === agenda.id) {
       clearTimeout(item.timer)
@@ -638,46 +627,45 @@ const createBrowserReminderTimer = (agenda, reminderDate) => {
     return true
   })
 
-  // 计算时间差（当前时间到提醒时间的毫秒数）
+  // 计算当前到提醒时间的差值
   const now = new Date()
   const timeDiff = reminderDate.getTime() - now.getTime()
 
-  // 创建定时器
+  // 创建新的定时器
   const timer = setTimeout(() => {
-    // 触发浏览器本地通知
     const notification = new Notification('【会议倒计时提醒】', {
       body: `《${agenda.title}》即将在15分钟后开始（会议时间：${agenda.time}），请做好准备！`,
-      icon: '/favicon.ico', // 可替换为你的项目图标（根目录）
+      icon: '/favicon.ico', // 可替换为项目自有图标
       requireInteraction: true, // 保持通知可见，直到用户关闭
-      tag: `agenda-reminder-${agenda.id}` // 通知标签，避免重复通知
+      tag: `agenda-reminder-${agenda.id}` // 唯一标签，避免同一议程重复显示通知
     })
 
-    // 通知点击事件（可选，点击后聚焦当前页面）
+    // 通知点击事件：聚焦到当前页面并关闭通知
     notification.onclick = () => {
       window.focus()
       notification.close()
     }
 
-    // 提示用户（可选，配合Toast）
+    // 弹出内部提示
     showToast(`《${agenda.title}》即将开始，请注意查收！`)
   }, timeDiff)
 
-  // 保存定时器，用于后续清除
+  // 保存定时器到列表，便于后续卸载/删除时清除
   reminderTimers.value.push({
     agendaId: agenda.id,
     timer: timer
   })
 
-  // 提示用户提醒已设置
+  // 提示用户提醒已设置成功
   showToast(`提醒已设置成功！将在${formatLocaleTime(reminderDate)}发送通知（会议提前15分钟）`)
 }
 
 /**
- * 方法2：添加议程到手机原生日历（原生闹钟提醒，兼容iOS/Android）
+ * 添加议程到手机原生日历（兼容iOS/Android）
  * @param {object} agenda 议程对象
  */
 const addToMobileCalendar = (agenda) => {
-  // 1. 解析议程时间（兼容现有议程格式）
+  // 1. 解析议程时间
   const agendaTimeStr = agenda.time.replace(' ', 'T')
   const agendaDate = new Date(agendaTimeStr)
 
@@ -686,8 +674,8 @@ const addToMobileCalendar = (agenda) => {
     return showToast('会议时间已过期，无法添加到日历')
   }
 
-  // 3. 设定会议结束时间（默认1小时，可修改）
-  const endDate = new Date(agendaDate.getTime() + 60 * 60 * 1000)
+  // 3. 设定会议结束时间（默认1小时，与已结束状态对应）
+  const endDate = new Date(agendaDate.getTime() + 1 * 60 * 60 * 1000)
 
   // 4. 格式化日历所需日期
   const startDateStr = formatCalendarDate(agendaDate)
@@ -735,26 +723,26 @@ END:VCALENDAR`.replace(/\n/g, '')
   link.click()
   document.body.removeChild(link)
 
-  // 8. 提示用户
+  // 8. 提示用户操作结果
   showToast(isIOS ? '日历文件已生成，请导入手机日历' : '正在唤起日历APP，请稍候')
 }
 
 /**
- * Markdown 相关：触发文件上传（点击按钮唤起文件选择框）
+ * 触发Markdown文件上传
  */
 const triggerMdUpload = () => {
   mdFileInput.value.click()
 }
 
 /**
- * Markdown 相关：处理上传的 Markdown 文件
+ * 解析文件内容并生成议程
  * @param {Event} e 文件上传事件
  */
 const handleMdFileUpload = (e) => {
   const file = e.target.files[0]
   if (!file) return
 
-  // 校验文件格式（仅支持 .md）
+  // 校验文件格式（仅支持.md文件）
   if (file.type !== 'text/markdown' && !file.name.endsWith('.md')) {
     return showToast('请上传合法的 .md 格式文件')
   }
@@ -767,9 +755,7 @@ const handleMdFileUpload = (e) => {
   reader.onload = (event) => {
     try {
       const mdContent = event.target.result
-      // 解析 Markdown 内容并生成议程
       const agendaListFromMd = parseMdToAgenda(mdContent)
-      // 将生成的议程添加到仓库
       addAgendaFromMd(agendaListFromMd)
       showToast(`解析成功！共生成 ${agendaListFromMd.length} 条议程`)
     } catch (err) {
@@ -777,7 +763,7 @@ const handleMdFileUpload = (e) => {
       showToast('解析 Markdown 失败，请检查文档格式')
     } finally {
       parsingMd.value = false
-      // 重置文件上传组件（允许重复上传同一文件）
+      // 重置文件输入框，允许重复上传同一文件
       mdFileInput.value.value = ''
     }
   }
@@ -788,28 +774,28 @@ const handleMdFileUpload = (e) => {
     mdFileInput.value.value = ''
   }
 
-  // 以文本格式读取文件
+  // 以纯文本格式读取Markdown文件
   reader.readAsText(file, 'utf-8')
 }
 
 /**
- * Markdown 相关：精准解析 Markdown 内容，生成有效议程（解决标题过长、备注无效问题）
- * @param {string} mdContent Markdown 文档内容
- * @returns {Array} 生成的有效议程列表
+ * 解析Markdown内容生成有效议程列表
+ * @param {string} mdContent Markdown文档内容
+ * @returns {Array} 生成的议程列表
  */
 const parseMdToAgenda = (mdContent) => {
   const agendaList = []
   if (!mdContent || mdContent.trim() === '') return agendaList
 
-  // 步骤1：预处理（过滤无用内容+统一格式）
+  // 步骤1：过滤无用格式、统一换行符
   const processedContent = mdContent
     .replace(/\r\n/g, '\n')
     .replace(/\n{4,}/g, '\n\n\n')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/\|[\s\S]*?\|/g, '')
+    .replace(/```[\s\S]*?```/g, '') // 过滤代码块
+    .replace(/\|[\s\S]*?\|/g, '') // 过滤表格
     .trim()
 
-  // 步骤2：解析为纯文本（过滤HTML标签）
+  // 步骤2：过滤HTML标签、转义字符
   let htmlContent = marked.parse(processedContent, { gfm: true, breaks: true, silent: true })
   const plainText = htmlContent
     .replace(/<[^>]*>/g, '')
@@ -818,7 +804,7 @@ const parseMdToAgenda = (mdContent) => {
     .replace(/\n\s+/g, '\n')
     .trim()
 
-  // 步骤3：智能拆分议程段落（空行分隔优先，确保拆分出多条议程）
+  // 步骤3：智能拆分议程段落（优先按空行分隔，次按标点符号分隔）
   let agendaParagraphs = plainText.split(/\n{2,}/).filter(p => p.trim())
   if (agendaParagraphs.length <= 1) {
     agendaParagraphs = plainText
@@ -827,9 +813,10 @@ const parseMdToAgenda = (mdContent) => {
       .split(/\n/)
       .filter(p => p.trim().length > 5)
   }
+  // 去重并过滤空段落
   const uniqueParagraphs = [...new Set(agendaParagraphs)].filter(p => p.trim())
 
-  // 步骤4：遍历段落，精准拆分标题与备注
+  // 步骤4：遍历段落生成议程对象
   uniqueParagraphs.forEach(paragraph => {
     const cleanParagraph = paragraph.trim()
     if (cleanParagraph.length < 3) return
@@ -837,30 +824,27 @@ const parseMdToAgenda = (mdContent) => {
     const currentAgenda = { title: '', time: '', tags: [], remark: '', isCollected: false }
     const contentLines = cleanParagraph.split(/\n/).filter(line => line.trim())
 
-    // 核心优化：精准拆分标题与备注
+    // 提取前10字作为标题，剩余作为备注
     const titleMatch = cleanParagraph.match(/^([^：；。！?]{2,10})[：；。！?]?/)
     if (titleMatch && titleMatch[1].trim()) {
-      // 有明确标题：提取简短标题（2-10字）
       currentAgenda.title = titleMatch[1].trim()
-      // 提取备注：标题之后的所有内容
       currentAgenda.remark = cleanParagraph.replace(titleMatch[0], '').trim() || '无详细内容'
     } else {
-      // 无明确标题：取前10字为标题，剩余为备注
       currentAgenda.title = cleanParagraph.substring(0, 10).trim()
       currentAgenda.remark = cleanParagraph.substring(10).trim() || '无详细内容'
     }
 
-    // 补全字段（时间、标签等）
+    // 补全议程缺失字段
     completeAgendaData(currentAgenda)
 
-    // 去重添加（避免重复议程）
+    // 去重添加
     const isDuplicate = agendaList.some(item => item.title === currentAgenda.title)
     if (!isDuplicate && currentAgenda.title) {
       agendaList.push(currentAgenda)
     }
   })
 
-  // 兜底：如果未提取到任何议程，生成一条默认议程
+  // 兜底：如果未生成任何议程，创建一条默认议程
   if (agendaList.length === 0) {
     const defaultAgenda = {
       title: '未命名议程',
@@ -876,7 +860,7 @@ const parseMdToAgenda = (mdContent) => {
 }
 
 /**
- * Markdown 相关：补全议程缺失的默认字段
+ * 补全议程对象的缺失字段（设置默认值）
  * @param {object} agenda 待补全的议程对象
  */
 const completeAgendaData = (agenda) => {
@@ -884,12 +868,12 @@ const completeAgendaData = (agenda) => {
   agenda.time = agenda.time?.trim() || formatCurrentDateTime().replace('T', ' ')
   agenda.tags = agenda.tags?.length ? agenda.tags : ['待讨论']
   agenda.remark = agenda.remark?.trim() || '无详细备注'
-  agenda.isCollected = !!agenda.isCollected
+  agenda.isCollected = !!agenda.isCollected // 确保收藏状态为布尔值
 }
 
 /**
- * Markdown 相关：将解析后的议程添加到 Pinia 仓库并持久化
- * @param {Array} agendaListFromMd 从 Markdown 解析出的议程列表
+ * 将解析后的议程列表添加到Pinia仓库并持久化
+ * @param {Array} agendaListFromMd 解析生成的议程列表
  */
 const addAgendaFromMd = (agendaListFromMd) => {
   if (!agendaListFromMd || agendaListFromMd.length === 0) return
@@ -906,7 +890,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
 </script>
 
 <style scoped>
-/* 页面基础样式 */
+/* 页面 */
 .home-page {
   min-height: 100vh;
   box-sizing: border-box;
@@ -915,7 +899,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
 
 .home-scroll-content {
   padding: 10px;
-  padding-bottom: 65px; /* 预留tabbar空间 */
+  padding-bottom: 65px; /* tabbar高度 */
   overflow-y: auto;
   height: calc(100vh - 0px);
   box-sizing: border-box;
@@ -937,45 +921,85 @@ const addAgendaFromMd = (agendaListFromMd) => {
   margin: 0;
 }
 
-/* 倒计时样式 */
-.countdown-container {
-  text-align: center;
-  padding: 10px 0;
+/* 会议状态模块 */
+.upcoming-container {
+  padding: 8px 0;
 }
 
-.countdown-text {
-  font-size: 18px;
-  color: #ff4d4f;
+.upcoming-item {
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+}
+
+/* 正在进行 */
+.upcoming-item.status-ongoing {
+  background-color: #fff7e6;
+  border: 1px solid #fa8c16;
+}
+
+.upcoming-item.status-ongoing .upcoming-status-tag {
+  background-color: #fa8c16;
+  color: #fff;
+}
+
+/*即将开始  */
+.upcoming-item.status-upcoming {
+  background-color: #f0fff4;
+  border: 1px solid #52c41a;
+}
+
+.upcoming-item.status-upcoming .upcoming-status-tag {
+  background-color: #52c41a;
+  color: #fff;
+}
+
+/* 已结束 */
+.upcoming-item.status-ended {
+  background-color: #f5f5f5;
+  border: 1px solid #d9d9d9;
+}
+
+.upcoming-item.status-ended .upcoming-status-tag {
+  background-color: #8c8c8c;
+  color: #fff;
+}
+
+.upcoming-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 8px;
 }
 
-.countdown-tip {
+.upcoming-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  flex: 1;
+}
+
+.upcoming-status-tag {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.upcoming-time {
   font-size: 12px;
   color: #666;
+  margin-bottom: 8px;
 }
 
-/* 会议流程跳转按钮样式 */
-.countdown-enter {
-  margin-top: 12px;
-  text-align: center;
+.upcoming-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.enter-meeting-btn {
-  background-color: #1989fa;
-  color: #ffffff;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.enter-meeting-btn:hover {
-  background-color: #1677ff;
-}
-
-/* 重要通知样式 */
+/* 重要通知 */
 .notice-container {
   padding: 8px 0;
 }
@@ -1043,26 +1067,6 @@ const addAgendaFromMd = (agendaListFromMd) => {
   margin: 12px 0;
 }
 
-/* 创建议程按钮样式 */
-.create-agenda-btn {
-  background-color: #1989fa;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
-.create-agenda-btn:hover {
-  background-color: #1677ff;
-}
-
 /* 导入 Markdown 按钮样式 */
 .import-md-btn {
   background-color: #52c41a;
@@ -1088,7 +1092,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   display: none;
 }
 
-/* 加载/错误提示样式 */
+/* 加载/错误提示 */
 .loading-mask {
   position: fixed;
   top: 0;
@@ -1125,7 +1129,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   font-weight: bold;
 }
 
-/* 议程列表样式 */
+/* 议程列表 */
 .agenda-list {
   width: 100%;
 }
@@ -1180,7 +1184,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   white-space: nowrap;
 }
 
-/* 议程操作按钮样式 */
+/* 议程操作按钮 */
 .agenda-actions {
   display: flex;
   gap: 6px;
@@ -1223,7 +1227,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   background-color: #ff3333;
 }
 
-/* 标签样式 */
+/* 标签 */
 .agenda-tags {
   display: flex;
   gap: 6px;
@@ -1239,7 +1243,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   border-radius: 4px;
 }
 
-/*备注样式 */
+/* 备注 */
 .agenda-remark {
   margin-top: 12px;
   padding-top: 12px;
@@ -1274,7 +1278,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   color: #1989fa !important;
 }
 
-/* 弹窗样式 */
+/* 弹窗通用 */
 .dialog-mask {
   position: fixed;
   top: 0;
@@ -1358,7 +1362,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   cursor: pointer;
 }
 
-/* 标签选择弹窗样式 */
+/* 标签选择弹窗 */
 .tag-group {
   display: flex;
   flex-wrap: wrap;
@@ -1379,7 +1383,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   color: #1989fa;
 }
 
-/* 备注输入框样式 */
+/* 备注 */
 .remark-input {
   width: 100%;
   padding: 10px;
@@ -1391,7 +1395,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   margin-bottom: 16px;
 }
 
-/* 分享弹窗样式 */
+/* 分享弹窗 */
 .share-content {
   margin-bottom: 20px;
 }
@@ -1412,7 +1416,6 @@ const addAgendaFromMd = (agendaListFromMd) => {
   margin-bottom: 10px;
 }
 
-/* Toast提示样式 */
 .toast-mask {
   position: fixed;
   top: 0;
@@ -1423,7 +1426,7 @@ const addAgendaFromMd = (agendaListFromMd) => {
   align-items: center;
   justify-content: center;
   z-index: 1001;
-  pointer-events: none;
+  pointer-events: none; 
 }
 
 .toast-content {

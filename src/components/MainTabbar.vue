@@ -15,7 +15,7 @@
           <span class="tab-custom-text">会议流程</span>
         </van-tabbar-item>
         <van-tabbar-item icon="info-o" class="custom-tab-item">
-          <span class="tab-custom-text">日程安排</span>
+          <span class="tab-custom-text">收藏议程</span>
         </van-tabbar-item>
         <van-tabbar-item icon="user-o" class="custom-tab-item">
           <span class="tab-custom-text">我的</span>
@@ -66,7 +66,7 @@ const handleTabChange = (index) => {
   const routeMap = [
     "/home", // 0: 首页
     "/process", // 1: 会议流程
-    "/detail", // 2: 会议详情
+    "/detail", // 2: 收藏议程
     "/mine", // 3: 我的
   ];
   if (index >= 0 && index < routeMap.length) {
