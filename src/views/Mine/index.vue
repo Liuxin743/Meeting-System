@@ -28,6 +28,11 @@
           <span class="function-title">我的备注</span>
           <van-icon name="arrow-right" size="16" color="#c8c9cc" class="function-arrow" />
         </div>
+        <div class="function-item" @click="openBannerEditDialog">
+          <van-icon name="photo-o" size="20" color="#1989fa" class="function-icon" />
+          <span class="function-title">编辑会议图</span>
+          <van-icon name="arrow-right" size="16" color="#c8c9cc" class="function-arrow" />
+        </div>
         <div class="function-item" @click="goToSetting">
           <van-icon name="setting" size="20" color="#1989fa" class="function-icon" />
           <span class="function-title">系统设置</span>
@@ -35,62 +40,160 @@
         </div>
       </div>
 
-      <!-- 创建新议程 -->
-      <button class="create-agenda-btn" @click="openCreateDialog" style="margin: 10px 0;">
-        + 创建新议程
-      </button>
+      <!-- 创建 -->
+      <div class="create-actions" style="margin: 10px 0; display: flex; gap: 10px;">
+        <button class="create-venue-btn create-btn" @click="openCreateVenueDialog" style="flex: 1;">
+          + 创建会场
+        </button>
+        <button class="create-agenda-btn create-btn" @click="openCreateDialog" style="flex: 1;" :disabled="venues.length === 0">
+          + 创建议程
+        </button>
+      </div>
 
-      <!-- 我的收藏议程 -->
-      <div class="collection-card card-common" style="margin-top: 10px;">
-        <h3 class="card-title">我的收藏</h3>
-        <div class="empty-tip" v-if="collectedAgendas.length === 0">
-          暂无收藏的议程
+      <!-- 我的会场列表 -->
+      <div class="venue-card card-common" style="margin-top: 10px;">
+        <h3 class="card-title">我的会场</h3>
+        <div class="empty-tip" v-if="venues.length === 0">
+          暂无创建的会场，点击「创建会场」开始
         </div>
-        <div class="collection-list" v-else>
-          <div class="collection-item" v-for="agenda in collectedAgendas" :key="agenda.id">
-            <div class="collection-content">
-              <div class="collection-title">{{ agenda.title }}</div>
-              <div class="collection-label">标签：{{ agenda.tags.join('、') || '无标签' }}</div>
+        <div class="venue-list" v-else>
+          <div class="venue-item" v-for="venue in venues" :key="venue.id">
+            <div class="venue-content" :style="{ borderLeft: `4px solid ${venue.color}` }">
+              <div class="venue-title">{{ venue.name }} 
+                <span class="venue-type-tag" :style="{ backgroundColor: venue.color }">{{ venue.type }}</span>
+              </div>
+              <div class="venue-label">会议时间：{{ formatAgendaTime(venue.time) }}</div>
+              <div class="venue-label">会议地址：{{ venue.address }}</div>
+              <div class="venue-label">关联议程：{{ getAgendaCountByVenueId(venue.id) }} 个</div>
             </div>
-            <button class="btn-danger mini-btn" @click="handleCancelCollect(agenda.id)">
-              取消收藏
-            </button>
+            <div class="venue-actions">
+              <button class="btn-edit mini-btn" @click="openEditVenueDialog(venue)">
+                编辑
+              </button>
+              <button class="btn-danger mini-btn" @click="deleteVenue(venue.id)">
+                删除
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 我的备注记录 -->
-      <div class="remark-card card-common" style="margin-top: 10px;">
-        <h3 class="card-title">我的备注</h3>
-        <div class="empty-tip" v-if="remarkAgendas.length === 0">
-          暂无备注的议程
+      <!-- 我的议程列表（新增核心模块） -->
+      <div class="agenda-card card-common" style="margin-top: 10px;">
+        <h3 class="card-title">我的议程</h3>
+        <div class="empty-tip" v-if="agendas.length === 0">
+          暂无创建的议程，先创建会场再创建议程
         </div>
-        <div class="remark-list" v-else>
-          <div class="remark-item" v-for="agenda in remarkAgendas" :key="agenda.id" @click="viewFullRemark(agenda)">
-            <div class="remark-content">
-              <div class="remark-title">{{ agenda.title }}</div>
-              <div class="remark-desc">备注摘要：{{ getRemarkSummary(agenda.remark) }}</div>
+        <div class="agenda-list" v-else>
+          <div class="agenda-item" v-for="agenda in agendas" :key="agenda.id">
+            <div class="agenda-content">
+              <div class="agenda-title">{{ agenda.title }}</div>
+              <div class="agenda-label">所属会场：{{ getVenueNameById(agenda.venueId) }}</div>
+              <div class="agenda-label">议程时间：{{ formatAgendaTime(agenda.time) }}</div>
+              <div class="agenda-label" v-if="agenda.flows && agenda.flows.length > 0">
+                流程数量：{{ agenda.flows.length }} 步
+              </div>
+              <div class="agenda-label" v-else>
+                流程数量：0 步（暂无流程）
+              </div>
             </div>
-            <van-icon name="arrow-right" size="16" color="#c8c9cc" class="remark-arrow" />
+            <div class="agenda-actions">
+              <button class="btn-edit mini-btn" @click="openEditFlowDialog(agenda)">
+                编辑流程
+              </button>
+              <button class="btn-danger mini-btn" @click="deleteAgenda(agenda.id)">
+                删除
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 创建议程弹窗 -->
+    <!-- 创建/编辑会场弹窗 -->
+    <div
+      class="dialog-mask"
+      v-if="createVenueDialogVisible"
+      @click="createVenueDialogVisible = false"
+    >
+      <div class="dialog-content dialog-lg" @click.stop>
+        <h3 class="dialog-title">{{ isEditVenue ? '编辑会场' : '创建新会场' }}</h3>
+        <div class="form-item">
+          <label class="form-label">会场名称：</label>
+          <input
+            class="form-input"
+            v-model="newVenue.name"
+            placeholder="如：技术主会场、运营分会场"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">会场类型：</label>
+          <select class="form-input" v-model="newVenue.type">
+            <option value="主会场">主会场</option>
+            <option value="分会场">分会场</option>
+          </select>
+        </div>
+        <div class="form-item">
+          <label class="form-label">会议时间：</label>
+          <input
+            class="form-input"
+            type="datetime-local"
+            v-model="newVenue.time"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">会议地址：</label>
+          <input
+            class="form-input"
+            v-model="newVenue.address"
+            placeholder="如：国际会议中心 一号宴会厅"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">主题色：</label>
+          <input
+            class="form-input color-input"
+            type="color"
+            v-model="newVenue.color"
+          />
+        </div>
+        <div class="dialog-btn-group">
+          <button
+            class="dialog-cancel-btn"
+            @click="createVenueDialogVisible = false"
+          >取消</button>
+          <button class="dialog-confirm-btn" @click="isEditVenue ? saveEditVenue() : createVenue()">
+            {{ isEditVenue ? '保存修改' : '确认创建' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 创建议程 -->
     <div
       class="dialog-mask"
       v-if="createDialogVisible"
       @click="createDialogVisible = false"
     >
-      <div class="dialog-content" @click.stop>
+      <div class="dialog-content dialog-lg" @click.stop>
         <h3 class="dialog-title">创建新议程</h3>
+        <div class="form-item">
+          <label class="form-label">所属会场：</label>
+          <select class="form-input" v-model="newAgenda.venueId" v-if="venues.length > 0">
+            <option v-for="venue in venues" :key="venue.id" :value="venue.id">
+              {{ venue.name }}
+            </option>
+          </select>
+          <div class="no-venue-tip" v-else>
+            请先创建会场
+          </div>
+        </div>
         <div class="form-item">
           <label class="form-label">议程标题：</label>
           <input
             class="form-input"
             v-model="newAgenda.title"
-            placeholder="请输入议程标题"
+            placeholder="请输入议程标题（如：2026年度技术研讨会）"
           />
         </div>
         <div class="form-item">
@@ -101,28 +204,134 @@
             v-model="newAgenda.time"
           />
         </div>
+
+        <!-- 会议流程编辑区域 -->
+        <div class="form-item flow-form-item">
+          <label class="form-label">会议流程：</label>
+          <div class="flow-add-btn" @click="addNewFlowStep">
+            <van-icon name="plus" size="16" color="#1989fa" />
+            <span>添加流程步骤</span>
+          </div>
+          
+          <!-- 流程步骤列表 -->
+          <div class="flow-step-list" v-if="newAgenda.flows.length > 0">
+            <div class="flow-step-item" v-for="(step, index) in newAgenda.flows" :key="index">
+              <div class="step-header">
+                <span class="step-num">步骤 {{ index + 1 }}</span>
+                <button class="step-del-btn" @click="deleteFlowStep(index)">
+                  <van-icon name="cross" size="14" color="#ff4d4f" />
+                </button>
+              </div>
+              <div class="step-form-content">
+                <div class="step-form-item">
+                  <label class="step-form-label">流程标题：</label>
+                  <input
+                    class="form-input step-input"
+                    v-model="step.title"
+                    placeholder="请输入流程标题（如：开场致辞）"
+                  />
+                </div>
+                <div class="step-form-item">
+                  <label class="step-form-label">流程时间：</label>
+                  <input
+                    class="form-input step-input"
+                    type="datetime-local"
+                    v-model="step.time"
+                  />
+                </div>
+                <div class="step-form-item">
+                  <label class="step-form-label">流程描述：</label>
+                  <textarea
+                    class="form-input step-textarea"
+                    v-model="step.desc"
+                    placeholder="请输入流程详细描述..."
+                    rows="3"
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="dialog-btn-group">
           <button
             class="dialog-cancel-btn"
             @click="createDialogVisible = false"
-          >
-            取消
-          </button>
-          <button class="dialog-confirm-btn" @click="handleCreateAgenda">
+            :disabled="venues.length === 0"
+          >取消</button>
+          <button class="dialog-confirm-btn" @click="handleCreateAgenda" :disabled="venues.length === 0">
             确认创建
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 完整备注弹窗 -->
-    <div class="dialog-mask" v-if="remarkDialogVisible" @click="remarkDialogVisible = false">
+    <!-- 编辑流程弹窗 -->
+    <div
+      class="dialog-mask"
+      v-if="editFlowDialogVisible"
+      @click="editFlowDialogVisible = false"
+    >
       <div class="dialog-content dialog-lg" @click.stop>
-        <h3 class="dialog-title">{{ currentRemarkAgenda.title }}</h3>
-        <div class="full-remark" v-html="currentRemarkAgenda.remark"></div>
-        <button class="dialog-confirm-btn" @click="remarkDialogVisible = false">
-          关闭
-        </button>
+        <h3 class="dialog-title">编辑 {{ currentEditAgenda.title }} 流程</h3>
+
+        <!-- 会议流程编辑区域 -->
+        <div class="form-item flow-form-item">
+          <label class="form-label">会议流程：</label>
+          <div class="flow-add-btn" @click="addNewEditFlowStep">
+            <van-icon name="plus" size="16" color="#1989fa" />
+            <span>添加流程步骤</span>
+          </div>
+          
+          <!-- 流程步骤列表 -->
+          <div class="flow-step-list" v-if="currentEditAgenda.flows.length > 0">
+            <div class="flow-step-item" v-for="(step, index) in currentEditAgenda.flows" :key="index">
+              <div class="step-header">
+                <span class="step-num">步骤 {{ index + 1 }}</span>
+                <button class="step-del-btn" @click="deleteEditFlowStep(index)">
+                  <van-icon name="cross" size="14" color="#ff4d4f" />
+                </button>
+              </div>
+              <div class="step-form-content">
+                <div class="step-form-item">
+                  <label class="step-form-label">流程标题：</label>
+                  <input
+                    class="form-input step-input"
+                    v-model="step.title"
+                    placeholder="请输入流程标题（如：开场致辞）"
+                  />
+                </div>
+                <div class="step-form-item">
+                  <label class="step-form-label">流程时间：</label>
+                  <input
+                    class="form-input step-input"
+                    type="datetime-local"
+                    v-model="step.time"
+                  />
+                </div>
+                <div class="step-form-item">
+                  <label class="step-form-label">流程描述：</label>
+                  <textarea
+                    class="form-input step-textarea"
+                    v-model="step.desc"
+                    placeholder="请输入流程详细描述..."
+                    rows="3"
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-btn-group">
+          <button
+            class="dialog-cancel-btn"
+            @click="editFlowDialogVisible = false"
+          >取消</button>
+          <button class="dialog-confirm-btn" @click="handleSaveEditFlow">
+            保存流程
+          </button>
+        </div>
       </div>
     </div>
 
@@ -161,31 +370,80 @@
             <div class="upload-tip">支持 JPG、PNG 格式，大小不超过 2MB</div>
           </div>
         </div>
-      </div>
 
-      <!-- 用户名修改 -->
-      <div class="edit-item">
-        <label class="edit-label">姓名：</label>
-        <van-field
-          v-model="tempUserName"
-          placeholder="输入你的姓名"
-          required
-          class="name-input"
-        />
+        <!-- 用户名修改 -->
+        <div class="edit-item">
+          <label class="edit-label">姓名：</label>
+          <van-field
+            v-model="tempUserName"
+            placeholder="输入你的姓名"
+            required
+            class="name-input"
+          />
+        </div>
       </div>
     </van-dialog>
+
+    <!-- 编辑会议宣传图弹窗 -->
+    <div
+      class="dialog-mask"
+      v-if="bannerEditDialogVisible"
+      @click="bannerEditDialogVisible = false"
+    >
+      <div class="dialog-content dialog-lg" @click.stop>
+        <h3 class="dialog-title">编辑会议宣传图</h3>
+        <div class="banner-preview">
+          <img 
+            :src="tempBannerUrl || bannerImageUrl || defaultBannerUrl" 
+            alt="宣传图预览" 
+            class="preview-img"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">上传本地图片：</label>
+          <input
+            type="file"
+            accept="image/*"
+            @change="handleBannerUpload"
+            class="file-input"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">或输入图片URL：</label>
+          <input
+            class="form-input"
+            v-model="bannerUrlInput"
+            placeholder="https://example.com/banner.jpg"
+          />
+        </div>
+        <div class="dialog-btn-group">
+          <button
+            class="dialog-cancel-btn"
+            @click="bannerEditDialogVisible = false"
+          >取消</button>
+          <button class="dialog-confirm-btn" @click="saveBannerImage">
+            保存图片
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAgendaStore } from '../../stores/agendaStore'
 
 const router = useRouter()
-const agendaStore = useAgendaStore()
 const userName = ref('会议参与者')
 const userAvatar = ref('')
+
+// 宣传图相关
+const bannerImageUrl = ref(localStorage.getItem('meetingBannerUrl') || '')
+const defaultBannerUrl = ref('https://pic1.zhimg.com/v2-ea1f5938445a9fb94d869d76c1d2c2a4_1440w.jpg')
+const bannerEditDialogVisible = ref(false)
+const tempBannerUrl = ref('')
+const bannerUrlInput = ref('')
 
 // 头像上传相关
 const userEditDialogVisible = ref(false)
@@ -193,23 +451,47 @@ const tempUserName = ref('')
 const tempAvatar = ref('')
 const uploaderFiles = ref([])
 
-// 备注弹窗相关响应式变量
-const remarkDialogVisible = ref(false)
-const currentRemarkAgenda = reactive({
-  title: '',
-  remark: ''
+// 会场相关数据
+const venues = ref(JSON.parse(localStorage.getItem('customVenues')) || [])
+const createVenueDialogVisible = ref(false)
+const isEditVenue = ref(false)
+const newVenue = reactive({
+  id: '',
+  name: '',
+  type: '主会场',
+  time: '',
+  address: '',
+  color: '#1989fa'
 })
 
-// 收藏/备注列表
-const collectedAgendas = ref([])
-const remarkAgendas = ref([])
-
-// 创建议程相关响应式数据
+// 议程相关数据
+const agendas = ref(JSON.parse(localStorage.getItem('customAgendas')) || [])
 const createDialogVisible = ref(false)
-const newAgenda = ref({
+const newAgenda = reactive({
+  id: '',
+  venueId: '',
   title: "",
-  time: ""
+  time: "",
+  flows: []
 })
+
+// 编辑流程弹窗相关
+const editFlowDialogVisible = ref(false)
+const currentEditAgenda = reactive({
+  id: '',
+  title: '',
+  flows: []
+})
+
+// 计算属性：判断是否有会场
+const hasVenues = computed(() => venues.value.length > 0)
+
+// 工具函数：生成唯一ID
+const generateUniqueId = () => {
+  const timestamp = new Date().getTime().toString(36)
+  const randomNum = Math.random().toString(36).substring(2, 8)
+  return `${timestamp}-${randomNum}`
+}
 
 // 格式化当前时间
 const formatCurrentDateTime = () => {
@@ -222,13 +504,77 @@ const formatCurrentDateTime = () => {
   return `${year}-${month}-${day}T${hour}:${minute}`
 }
 
-// 刷新收藏/备注列表
-const refreshAgendaLists = () => {
-  collectedAgendas.value = agendaStore.getCollectedAgendas() || []
-  remarkAgendas.value = agendaStore.getRemarkAgendas() || []
+// 格式化时间显示
+const formatAgendaTime = (datetimeStr) => {
+  if (!datetimeStr) return '未设置'
+  const formatStr = datetimeStr.includes('T') ? datetimeStr.replace('T', ' ') : datetimeStr
+  const date = new Date(formatStr)
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-// 头像上传相关方法
+// 保存数据到本地存储
+const saveToLocalStorage = () => {
+  localStorage.setItem('customVenues', JSON.stringify(venues.value))
+  localStorage.setItem('customAgendas', JSON.stringify(agendas.value))
+  localStorage.setItem('meetingBannerUrl', bannerImageUrl.value)
+  localStorage.setItem('userName', userName.value)
+  localStorage.setItem('userAvatar', userAvatar.value)
+}
+
+// ===================== 宣传图编辑方法 =====================
+const openBannerEditDialog = () => {
+  tempBannerUrl.value = bannerImageUrl.value
+  bannerUrlInput.value = bannerImageUrl.value
+  bannerEditDialogVisible.value = true
+}
+
+const handleBannerUpload = (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  
+  // 校验文件类型
+  if (!file.type.startsWith('image/')) {
+    alert('请上传图片格式的文件（JPG/PNG）')
+    return
+  }
+  
+  // 校验文件大小（2MB限制）
+  if (file.size > 2 * 1024 * 1024) {
+    alert('图片大小不能超过2MB')
+    return
+  }
+  
+  // 转为base64存储
+  const reader = new FileReader()
+  reader.onload = (event) => {
+    tempBannerUrl.value = event.target.result
+  }
+  reader.readAsDataURL(file)
+}
+
+const saveBannerImage = () => {
+  // 优先使用上传的图片，其次使用URL
+  if (tempBannerUrl.value) {
+    bannerImageUrl.value = tempBannerUrl.value
+  } else if (bannerUrlInput.value) {
+    // 简单URL校验
+    const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w.-]*)*\/?$/
+    if (!urlPattern.test(bannerUrlInput.value)) {
+      alert('请输入有效的图片URL')
+      return
+    }
+    bannerImageUrl.value = bannerUrlInput.value
+  } else {
+    // 清空使用默认图
+    bannerImageUrl.value = ''
+  }
+  
+  saveToLocalStorage()
+  bannerEditDialogVisible.value = false
+  alert('宣传图保存成功')
+}
+
+// 个人信息
 const handleAfterRead = (file) => {
   tempAvatar.value = file.content
   uploaderFiles.value = [file]
@@ -245,7 +591,6 @@ const resetUploader = () => {
   uploaderFiles.value = []
 }
 
-// 打开个人信息编辑弹窗
 const openUserEditDialog = () => {
   tempUserName.value = userName.value
   tempAvatar.value = '' 
@@ -253,29 +598,23 @@ const openUserEditDialog = () => {
   userEditDialogVisible.value = true
 }
 
-// 保存个人信息
 const saveUserInfo = () => {
   if (!tempUserName.value.trim()) {
     alert('姓名不能为空，请输入！')
     return
   }
 
-  // 更新个人信息响应式变量
   userName.value = tempUserName.value.trim()
   if (tempAvatar.value) {
     userAvatar.value = tempAvatar.value
   }
 
-  // 持久化存储到 localStorage
-  localStorage.setItem('userName', userName.value)
-  localStorage.setItem('userAvatar', userAvatar.value)
-
-  // 重置上传组件并关闭弹窗
+  saveToLocalStorage()
   resetUploader()
   userEditDialogVisible.value = false
 }
 
-// 页面跳转
+// 页面跳转 
 const goToCollection = () => {
   router.push({
     path: '/collection',
@@ -297,62 +636,205 @@ const goToSetting = () => {
   })
 }
 
-// 取消议程收藏
-const handleCancelCollect = (agendaId) => {
-  agendaStore.toggleAgendaCollect(agendaId)
-  // 刷新列表，确保页面实时更新
-  refreshAgendaLists()
-  alert('已取消该议程收藏')
+//  会场操作方法 
+const openCreateVenueDialog = () => {
+  newVenue.id = generateUniqueId()
+  newVenue.name = ''
+  newVenue.type = '主会场'
+  newVenue.time = formatCurrentDateTime()
+  newVenue.address = ''
+  newVenue.color = '#1989fa'
+  isEditVenue.value = false
+  createVenueDialogVisible.value = true
 }
 
-// 查看议程完整备注
-const viewFullRemark = (agenda) => {
-  currentRemarkAgenda.title = agenda.title
-  currentRemarkAgenda.remark = agenda.remark
-  remarkDialogVisible.value = true
+const openEditVenueDialog = (venue) => {
+  newVenue.id = venue.id
+  newVenue.name = venue.name
+  newVenue.type = venue.type
+  newVenue.time = venue.time.includes(' ') ? venue.time.replace(' ', 'T') : venue.time
+  newVenue.address = venue.address
+  newVenue.color = venue.color
+  isEditVenue.value = true
+  createVenueDialogVisible.value = true
 }
 
-// 获取备注摘要
-const getRemarkSummary = (htmlContent) => {
-  if (!htmlContent) return ''
-  const plainText = htmlContent.replace(/<[^>]+>/g, '')
-  return plainText.length > 20 ? `${plainText.slice(0, 20)}...` : plainText
-}
-
-// 打开新建议程弹窗
-const openCreateDialog = () => {
-  newAgenda.value = {
-    title: "",
-    time: formatCurrentDateTime()
+const createVenue = () => {
+  if (!newVenue.name || !newVenue.time || !newVenue.address) {
+    alert('请填写必填字段')
+    return
   }
+  venues.value.push({ ...newVenue })
+  saveToLocalStorage()
+  createVenueDialogVisible.value = false
+  alert('会场创建成功')
+}
+
+const saveEditVenue = () => {
+  if (!newVenue.name || !newVenue.time || !newVenue.address) {
+    alert('请填写必填字段')
+    return
+  }
+  const index = venues.value.findIndex(v => v.id === newVenue.id)
+  if (index > -1) {
+    venues.value[index] = { ...newVenue }
+    saveToLocalStorage()
+    createVenueDialogVisible.value = false
+    alert('会场修改成功')
+  }
+}
+
+const deleteVenue = (venueId) => {
+  if (!confirm('确定删除该会场？关联的所有议程也会被删除')) return
+  // 删除会场
+  venues.value = venues.value.filter(v => v.id !== venueId)
+  // 删除关联议程
+  agendas.value = agendas.value.filter(a => a.venueId !== venueId)
+  saveToLocalStorage()
+  alert('会场及关联议程已删除')
+}
+
+// 根据会场ID获取会场名称
+const getVenueNameById = (venueId) => {
+  const venue = venues.value.find(v => v.id === venueId)
+  return venue ? venue.name : '未知会场'
+}
+
+// 根据会场ID获取关联议程数量
+const getAgendaCountByVenueId = (venueId) => {
+  return agendas.value.filter(a => a.venueId === venueId).length
+}
+
+// 议程操作方法 
+const openCreateDialog = () => {
+  if (venues.value.length === 0) {
+    alert('请先创建会场')
+    return
+  }
+  newAgenda.id = generateUniqueId()
+  newAgenda.venueId = venues.value[0].id
+  newAgenda.title = ""
+  newAgenda.time = formatCurrentDateTime()
+  newAgenda.flows = []
   createDialogVisible.value = true
+}
+
+// 添加流程步骤
+const addNewFlowStep = () => {
+  const newFlowStep = {
+    title: "",
+    time: formatCurrentDateTime(),
+    desc: ""
+  }
+  newAgenda.flows.push(newFlowStep)
+}
+
+//  删除流程步骤
+const deleteFlowStep = (index) => {
+  if (confirm('确定要删除该流程步骤吗？删除后不可恢复')) {
+    newAgenda.flows.splice(index, 1)
+  }
 }
 
 // 保存新建议程
 const handleCreateAgenda = () => {
-  if (!newAgenda.value.title.trim()) {
+  if (!newAgenda.title.trim()) {
     return alert("请输入议程标题")
   }
-  agendaStore.addNewAgenda(newAgenda.value)
+
+  // 构建完整议程数据
+  const completeAgenda = {
+    id: newAgenda.id,
+    venueId: newAgenda.venueId,
+    title: newAgenda.title.trim(),
+    time: newAgenda.time,
+    flows: [...newAgenda.flows].map(step => ({
+      ...step,
+      time: step.time ? step.time.replace('T', ' ') : ''
+    }))
+  }
+
+  agendas.value.push(completeAgenda)
+  saveToLocalStorage()
   createDialogVisible.value = false
-  // 刷新收藏/备注列表
-  refreshAgendaLists()
-  alert("议程创建成功")
+  alert("议程及关联流程创建成功")
 }
 
-// 初始化所有数据
+// 删除议程
+const deleteAgenda = (agendaId) => {
+  if (!confirm('确定删除该议程？关联的所有流程步骤也会被删除')) return
+  agendas.value = agendas.value.filter(a => a.id !== agendaId)
+  saveToLocalStorage()
+  alert('议程已删除')
+}
+
+// 编辑流程方法
+const openEditFlowDialog = (agenda) => {
+  currentEditAgenda.id = agenda.id
+  currentEditAgenda.title = agenda.title
+  // 深拷贝流程数据
+  currentEditAgenda.flows = JSON.parse(JSON.stringify(agenda.flows || []))
+  // 格式化流程时间
+  currentEditAgenda.flows.forEach(step => {
+    if (step.time && step.time.includes(' ')) {
+      step.time = step.time.replace(' ', 'T')
+    }
+  })
+  editFlowDialogVisible.value = true
+}
+
+const addNewEditFlowStep = () => {
+  const newFlowStep = {
+    title: "",
+    time: formatCurrentDateTime(),
+    desc: ""
+  }
+  currentEditAgenda.flows.push(newFlowStep)
+}
+
+const deleteEditFlowStep = (index) => {
+  if (confirm('确定要删除该流程步骤吗？删除后不可恢复')) {
+    currentEditAgenda.flows.splice(index, 1)
+  }
+}
+
+const handleSaveEditFlow = () => {
+  if (!currentEditAgenda.id) {
+    alert('议程ID异常，无法保存流程')
+    return
+  }
+
+  // 格式化流程时间
+  const formattedFlows = currentEditAgenda.flows.map(step => ({
+    ...step,
+    time: step.time ? step.time.replace('T', ' ') : ''
+  }))
+
+  // 更新议程流程
+  const index = agendas.value.findIndex(a => a.id === currentEditAgenda.id)
+  if (index > -1) {
+    agendas.value[index].flows = formattedFlows
+    saveToLocalStorage()
+  }
+  
+  editFlowDialogVisible.value = false
+  alert('议程流程保存成功')
+}
+
+// 初始化数据
 onMounted(() => {
-  agendaStore.loadAgendaFromLocalStorage()
-  refreshAgendaLists()
   const savedName = localStorage.getItem('userName')
   const savedAvatar = localStorage.getItem('userAvatar')
+  const savedBanner = localStorage.getItem('meetingBannerUrl')
 
-  if (savedName) {
-    userName.value = savedName
-  }
-  if (savedAvatar) {
-    userAvatar.value = savedAvatar
-  }
+  if (savedName) userName.value = savedName
+  if (savedAvatar) userAvatar.value = savedAvatar
+  if (savedBanner) bannerImageUrl.value = savedBanner
+
+  // 监听数据变化自动保存
+  watch([venues, agendas, bannerImageUrl], () => {
+    saveToLocalStorage()
+  }, { deep: true })
 })
 </script>
 
@@ -479,8 +961,41 @@ onMounted(() => {
   padding: 20px 0;
 }
 
-/* 收藏列表样式 */
-.collection-item {
+/* 创建操作区样式 */
+.create-actions {
+  width: 100%;
+}
+
+.create-btn {
+  background-color: #1989fa;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.3s ease;
+}
+
+.create-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.create-venue-btn {
+  background-color: #1989fa;
+}
+
+.create-agenda-btn {
+  background-color: #52c41a;
+}
+
+/* 会场列表样式 */
+.venue-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -488,26 +1003,73 @@ onMounted(() => {
   border-bottom: 1px solid #f0f0f0;
 }
 
-.collection-item:last-child {
+.venue-item:last-child {
   border-bottom: none;
 }
 
-.collection-content {
+.venue-content {
   flex: 1;
+  padding-left: 8px;
 }
 
-.collection-title {
+.venue-title {
   font-size: 14px;
   color: #333;
   margin-bottom: 4px;
+  font-weight: 500;
 }
 
-.collection-label {
+.venue-type-tag {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #fff;
+  margin-left: 8px;
+}
+
+.venue-label {
   font-size: 12px;
   color: #666;
+  margin-bottom: 2px;
 }
 
-/* 按钮样式 */
+/* 议程列表样式 */
+.agenda-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.agenda-item:last-child {
+  border-bottom: none;
+}
+
+.agenda-content {
+  flex: 1;
+}
+
+.agenda-title {
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.agenda-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 2px;
+}
+
+/* 操作按钮样式 */
+.venue-actions, .agenda-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .btn-danger {
   background-color: #ff4d4f;
   color: #ffffff;
@@ -521,48 +1083,22 @@ onMounted(() => {
   background-color: #ff3333;
 }
 
-.mini-btn {
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-/* 备注列表样式 */
-.remark-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
+.btn-edit {
+  background-color: #1989fa;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.3s ease;
 }
 
-.remark-item:last-child {
-  border-bottom: none;
+.btn-edit:hover {
+  background-color: #1677ff;
 }
 
-.remark-item:hover {
-  background-color: #f5fafe;
-}
-
-.remark-content {
-  flex: 1;
-}
-
-.remark-title {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 4px;
-}
-
-.remark-desc {
+.mini-btn {
+  padding: 4px 8px;
   font-size: 12px;
-  color: #666;
-}
-
-.remark-arrow {
-  font-size: 12px;
-  color: #c8c9cc;
 }
 
 /* 弹窗样式 */
@@ -602,16 +1138,8 @@ onMounted(() => {
   text-align: center;
 }
 
-.full-remark {
-  font-size: 14px;
-  color: #666;
-  line-height: 1.6;
-  padding: 8px 0;
-  margin-bottom: 20px;
-}
-
 .dialog-confirm-btn {
-  width: 100%;
+  width: 50%;
   padding: 10px 0;
   background-color: #1989fa;
   color: #ffffff;
@@ -621,7 +1149,141 @@ onMounted(() => {
   cursor: pointer;
 }
 
-/* 编辑用户信息弹窗样式 */
+/* 表单样式 */
+.form-item {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 4px;
+  display: block;
+  font-weight: 500;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.color-input {
+  height: 40px;
+  padding: 2px;
+}
+
+.dialog-btn-group {
+  display: flex;
+  gap: 10px;
+}
+
+.dialog-cancel-btn {
+  flex: 1;
+  padding: 10px 0;
+  background-color: #f5f5f5;
+  color: #666;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 流程样式 */
+.flow-form-item {
+  margin-bottom: 20px;
+}
+
+.flow-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background-color: #f5fafe;
+  border: 1px dashed #1989fa;
+  border-radius: 4px;
+  color: #1989fa;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 12px;
+}
+
+.flow-add-btn:hover {
+  background-color: #e6f7ff;
+}
+
+.flow-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.flow-step-item {
+  padding: 12px;
+  background-color: #fafafa;
+  border-radius: 6px;
+}
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.step-num {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.step-del-btn {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.step-del-btn:hover {
+  background-color: #fff0f0;
+}
+
+.step-form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-form-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.step-input {
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.step-textarea {
+  font-size: 13px;
+  padding: 6px 8px;
+  resize: none;
+  line-height: 1.5;
+}
+
+/* 编辑用户信息弹窗 */
 .user-edit-content {
   display: flex;
   flex-direction: column;
@@ -640,7 +1302,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* 头像上传样式 */
+/* 头像上传 */
 .avatar-upload {
   display: flex;
   align-items: center;
@@ -695,7 +1357,6 @@ onMounted(() => {
   --van-field-font-size: 14px;
 }
 .name-input:deep(.van-field__control) {
-  /* 聚焦时的边框样式 */
   &:focus {
     border: 1px solid #1989fa; 
     outline: none; 
@@ -704,62 +1365,22 @@ onMounted(() => {
   }
 }
 
-/* 创建议程按钮样式 */
-.create-agenda-btn {
-  background-color: #1989fa;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  transition: background-color 0.3s ease;
-}
-.dialog-confirm-btn{
-  width: 50%;
-}
-.create-agenda-btn:hover {
-  background-color: #1677ff;
-}
-
-/* 创建议程弹窗样式 */
-.form-item {
+/* 宣传图编辑 */
+.banner-preview {
   margin-bottom: 16px;
+  text-align: center;
 }
 
-.form-label {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 4px;
-  display: block;
+.preview-img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 4px;
+  border: 1px solid #eee;
 }
 
-.form-input {
+.file-input {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #e5e5e5;
-  border-radius: 4px;
+  padding: 8px;
   font-size: 14px;
-  box-sizing: border-box;
-}
-
-.dialog-btn-group {
-  display: flex;
-  gap: 10px;
-}
-
-.dialog-cancel-btn {
-  flex: 1;
-  padding: 10px 0;
-  background-color: #f5f5f5;
-  color: #666;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
 }
 </style>

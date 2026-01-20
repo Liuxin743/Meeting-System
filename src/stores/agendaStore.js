@@ -56,7 +56,7 @@ export const useAgendaStore = defineStore('agenda', () => {
     localStorage.removeItem('agendaList');
   };
 
-  // 8. 添加新议程
+  // 8. 添加新议程（优化：支持 flows 字段，完整存储会议流程）
   const addNewAgenda = (newAgenda) => {
     const agendaId = Date.now() + Math.floor(Math.random() * 1000);
     let agendaTime = newAgenda.time;
@@ -79,6 +79,8 @@ export const useAgendaStore = defineStore('agenda', () => {
       tags: newAgenda.tags || [],
       // 支持接收 remark 参数，无则默认空字符串
       remark: newAgenda.remark || '',
+      // 新增：支持 flows 字段，无则默认空数组（存储会议流程步骤）
+      flows: newAgenda.flows || [],
       isCollected: false
     };
     agendaList.value.push(agenda);
@@ -86,15 +88,27 @@ export const useAgendaStore = defineStore('agenda', () => {
     return agendaId;
   };
 
-  // 9. 更新议程（标题/时间）
+  // 9. 更新议程
   const updateAgenda = (agendaId, updateData) => {
     const agenda = agendaList.value.find(item => item.id === agendaId);
     if (agenda) {
+      // 若更新数据包含 time，保持原有格式转换逻辑
+      if (updateData.time && updateData.time.includes('T')) {
+        updateData.time = updateData.time.replace('T', ' ');
+      }
       Object.assign(agenda, updateData);
       localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
     }
   };
 
+  // 新增：更新单个议程的流程数据
+const updateAgendaFlows = (agendaId, newFlows) => {
+  const agenda = agendaList.value.find(item => item.id === agendaId);
+  if (agenda) {
+    agenda.flows = newFlows || [];
+    localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
+  }
+};
   // 导出响应式数据和方法
   return {
     agendaList,
@@ -106,6 +120,7 @@ export const useAgendaStore = defineStore('agenda', () => {
     loadAgendaFromLocalStorage,
     clearAgendaStorage,
     addNewAgenda,
-    updateAgenda
+    updateAgenda,
+    updateAgendaFlows
   };
 });
