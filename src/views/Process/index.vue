@@ -70,37 +70,63 @@
 
         <!-- 议程列表 -->
         <div class="flow-step-list" v-else>
+          <!-- 议程 -->
           <div 
-            class="flow-step" 
+            class="agenda-item" 
             v-for="(agenda, aIndex) in currentVenueAgendas" 
             :key="agenda.id"
           >
-            <!-- 流程步骤列表 -->
-            <div class="custom-flow-list">
+            <!-- 议程标题 -->
+            <div 
+              class="agenda-title" 
+              @click="toggleAgendaExpand(agenda.id)"
+              :style="{ borderLeftColor: currentVenue.color }"
+            >
+              <!-- 议程序号 -->
+              <span class="agenda-num" :style="{ backgroundColor: currentVenue.color, color: '#fff' }">
+                {{ aIndex + 1 }}
+              </span>
+              <span class="expand-icon" :class="{ expanded: expandedAgendaIds.includes(agenda.id) }">
+                {{ expandedAgendaIds.includes(agenda.id) ? '▼' : '▶' }}
+              </span>
+              {{ agenda.title }}
+            </div>
+            
+            <!-- 当前议程的流程步骤 -->
+            <div class="custom-flow-list" v-if="expandedAgendaIds.includes(agenda.id)">
               <div 
                 class="custom-flow-step" 
                 v-for="(step, sIndex) in agenda.flows" 
-                :key="sIndex"
+                :key="`${agenda.id}-${sIndex}`"
               >
                 <div class="custom-step-header">
-                  <!-- 步骤序号 -->
+                  <!-- 流程步骤序号 -->
                   <span class="custom-step-num" :style="{ backgroundColor: currentVenue.color, color: '#fff' }">
-                    {{ sIndex+1 }}
+                    {{ sIndex + 1 }}
                   </span>
                   <div class="step-info-wrap">
                     <h4 class="custom-step-title">{{ step.title }}</h4>
                     <div class="custom-step-desc">{{ step.desc || '无描述' }}</div>
-                    <!-- 步骤操作按钮 -->
-                    <div class="sub-step-actions">
+                    <!-- 时间+地址 -->
+                    <div class="step-meta">
+                      <span class="custom-step-time" :style="{ color: currentVenue.color }">
+                        {{ formatTime(step.time) }}
+                      </span>
+                      <span class="custom-step-address">
+                        地址：{{ step.address || currentVenue.address }}
+                      </span>
+                    </div>
+                    <!-- 收藏/备注-->
+                    <div class="step-actions-bottom">
                       <span 
-                        class="action-btn collect-btn mini"
+                        class="action-btn collect-btn"
                         :class="{ collected: isFlowStepCollected(agenda.id, sIndex) }"
                         @click.stop="toggleFlowStepCollect(agenda.id, sIndex)"
                       >
                         {{ isFlowStepCollected(agenda.id, sIndex) ? '已收藏' : '收藏' }}
                       </span>
                       <span 
-                        class="action-btn remark-btn mini"
+                        class="action-btn remark-btn"
                         @click.stop="openFlowStepRemarkModal(agenda.id, sIndex, step)"
                       >
                         {{ getFlowStepRemark(agenda.id, sIndex) ? '已备注' : '备注' }}
@@ -108,46 +134,43 @@
                     </div>
                   </div>
                 </div>
-                <!-- 时间+地址 -->
-                <div class="step-meta">
-                  <span class="custom-step-time" :style="{ color: currentVenue.color }">
-                    {{ formatTime(step.time) }}
-                  </span>
-                  <span class="custom-step-address">
-                    地址：{{ step.address || currentVenue.address }}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- 流程步骤备注弹窗 -->
-    <div class="modal-mask" v-if="stepRemarkModalVisible" @click="closeStepRemarkModal">
-      <div class="modal-content" @click.stop>
-        <h3 class="modal-title">备注 - {{ currentStepRemarkTitle }}</h3>
-        <textarea
-          class="form-input remark-input"
-          v-model="currentStepRemarkContent"
-          placeholder="请输入备注内容..."
-          rows="3"
-        ></textarea>
-        <div class="modal-btns">
-          <button class="modal-btn cancel-btn" @click="closeStepRemarkModal">取消</button>
-          <button class="modal-btn confirm-btn" @click="saveFlowStepRemark">保存备注</button>
-        </div>
+  <!-- 流程步骤备注弹窗 -->
+  <div class="modal-mask" v-if="stepRemarkModalVisible" @click="closeStepRemarkModal">
+    <div class="modal-content" @click.stop>
+      <h3 class="modal-title">备注 - {{ currentStepRemarkTitle }}</h3>
+      <textarea
+        class="form-input remark-input"
+        v-model="currentStepRemarkContent"
+        placeholder="请输入备注内容..."
+        rows="3"
+      ></textarea>
+      <div class="modal-btns">
+        <button class="modal-btn cancel-btn" @click="closeStepRemarkModal">取消</button>
+        <button class="modal-btn confirm-btn" @click="saveFlowStepRemark">保存备注</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
+// JS部分完全不变
+import { ref, onMounted, computed, watch } from "vue";
+import { useAgendaStore } from '../../stores/agendaStore';
 
+// 初始化Pinia仓库
+const agendaStore = useAgendaStore();
+
+// 会场数据
 const customVenues = ref(JSON.parse(localStorage.getItem('customVenues')) || []);
-const customAgendas = ref(JSON.parse(localStorage.getItem('customAgendas')) || []);
+// 收藏/备注数据
 const userCollections = ref(JSON.parse(localStorage.getItem('userCollections')) || {
   agendaIds: [],
   flowSteps: []
@@ -157,11 +180,15 @@ const userRemarks = ref(JSON.parse(localStorage.getItem('userRemarks')) || {
   flowSteps: {}
 });
 
+// 宣传图数据
 const bannerImageUrl = ref(localStorage.getItem('meetingBannerUrl') || '');
-// 参考图
 const defaultBannerUrl = ref('https://img.ixintu.com/download/jpg/202308/6673017c157638922.jpg');
 
+// 激活的会场ID
 const activeVenueId = ref(customVenues.value[0]?.id || '');
+
+// 折叠/展开状态
+const expandedAgendaIds = ref([]);
 
 // 备注弹窗
 const stepRemarkModalVisible = ref(false);
@@ -170,28 +197,31 @@ const currentStepRemarkIndex = ref(-1);
 const currentStepRemarkTitle = ref('');
 const currentStepRemarkContent = ref('');
 
+// 当前选中的会场
 const currentVenue = computed(() => {
   return customVenues.value.find(venue => venue.id === activeVenueId.value) || {};
 });
 
+// 会场的议程
 const currentVenueAgendas = computed(() => {
-  return customAgendas.value.filter(agenda => agenda.venueId === activeVenueId.value);
+  return agendaStore.agendaList.filter(agenda => agenda.venueId === activeVenueId.value);
 });
 
+// 时间格式化方法
 function formatTime(datetimeStr) {
   if (!datetimeStr) return '未设置';
   const date = new Date(datetimeStr);
   return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')} - ${date.getHours() + 1}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+// 同步数据到本地存储
 function syncGlobalDataToLocal() {
   localStorage.setItem('userCollections', JSON.stringify(userCollections.value));
   localStorage.setItem('userRemarks', JSON.stringify(userRemarks.value));
   localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
-  localStorage.setItem('customAgendas', JSON.stringify(customAgendas.value));
 }
 
-// 收藏
+// 收藏相关方法
 function isFlowStepCollected(agendaId, stepIndex) {
   return userCollections.value.flowSteps.some(item => 
     item.agendaId === agendaId && item.stepIndex === stepIndex
@@ -211,7 +241,7 @@ function toggleFlowStepCollect(agendaId, stepIndex) {
   syncGlobalDataToLocal();
 }
 
-// 备注
+// 备注相关方法
 function getFlowStepRemark(agendaId, stepIndex) {
   const key = `${agendaId}_${stepIndex}`;
   return userRemarks.value.flowSteps[key] || '';
@@ -243,10 +273,28 @@ function saveFlowStepRemark() {
   }
 }
 
+// 切换会场方法
 function switchVenue(venueId) {
   activeVenueId.value = venueId;
+  // 切换会场后重置折叠状态
+  expandedAgendaIds.value = [];
 }
+
+// 切换议程的折叠/展开状态
+function toggleAgendaExpand(agendaId) {
+  if (expandedAgendaIds.value.includes(agendaId)) {
+    expandedAgendaIds.value = expandedAgendaIds.value.filter(id => id !== agendaId);
+  } else {
+    expandedAgendaIds.value.push(agendaId);
+  }
+}
+
+// 页面挂载逻辑
 onMounted(() => {
+  // 1. 加载Pinia仓库中的议程数据
+  agendaStore.loadAgendaFromLocalStorage();
+  
+  // 2. 同步会场/收藏/备注数据
   window.addEventListener('storage', (e) => {
     if (e.key === 'userCollections') {
       userCollections.value = JSON.parse(e.newValue || JSON.stringify({ agendaIds: [], flowSteps: [] }));
@@ -254,10 +302,23 @@ onMounted(() => {
       userRemarks.value = JSON.parse(e.newValue || JSON.stringify({ agendas: {}, flowSteps: {} }));
     } else if (e.key === 'customVenues') {
       customVenues.value = JSON.parse(e.newValue || '[]');
-    } else if (e.key === 'customAgendas') {
-      customAgendas.value = JSON.parse(e.newValue || '[]');
+      if (customVenues.value.length > 0 && !activeVenueId.value) {
+        activeVenueId.value = customVenues.value[0].id;
+      }
+    } else if (e.key === 'agendaList') {
+      agendaStore.loadAgendaFromLocalStorage();
     }
   });
+
+  // 3. 监听会场数据变化，自动保存到本地
+  watch(customVenues, () => {
+    localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
+  }, { deep: true });
+
+  // 4. 监听收藏/备注变化，自动保存
+  watch([userCollections, userRemarks], () => {
+    syncGlobalDataToLocal();
+  }, { deep: true });
 });
 </script>
 
@@ -425,24 +486,64 @@ onMounted(() => {
   margin: 0;
 }
 
+/* 议程列表 */
+.agenda-item {
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background-color: #fafafa;
+  overflow: hidden;
+}
+
+/* 议程标题 */
+.agenda-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+  padding: 12px 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 3px solid #1989fa;
+  background-color: #f0f7ff;
+}
+
+/* 议程序号 */
+.agenda-num {
+  width: 20px;  
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;  
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+/* 折叠/展开图标 */
+.expand-icon {
+  font-size: 14px;
+  color: #1989fa;
+  transition: transform 0.2s;
+}
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
 /* 流程步骤列表 */
 .custom-flow-list {
+  padding: 0 15px 15px;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
 }
 
 .custom-flow-step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #f5f5f5;
-}
-
-.custom-flow-step:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
+  padding: 10px;
+  background-color: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .custom-step-header {
@@ -451,18 +552,19 @@ onMounted(() => {
   align-items: flex-start;
 }
 
-/* 步骤序号 */
+/* 流程步骤序号 */
 .custom-step-num {
-  width: 22px;
-  height: 22px;
+  width: 18px; 
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
+  font-size: 10px;  
+  font-weight: normal;
   flex-shrink: 0;
   margin-top: 2px;
+  opacity: 0.8;  
 }
 
 .step-info-wrap {
@@ -470,32 +572,49 @@ onMounted(() => {
 }
 
 .custom-step-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: #333;
   margin: 0 0 5px 0;
 }
 
 .custom-step-desc {
-  font-size: 14px;
+  font-size: 12px;
   color: #666;
   line-height: 1.5;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-/* 步骤操作按钮 */
-.sub-step-actions {
+/* 时间+地址 */
+.step-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  margin-bottom: 8px; /* 给下方按钮留间距 */
+}
+
+.custom-step-time {
+  font-weight: 500;
+}
+
+.custom-step-address {
+  color: #666;
+}
+
+
+.step-actions-bottom {
   display: flex;
   gap: 8px;
-  margin-bottom: 5px;
 }
 
 .action-btn {
-  padding: 2px 6px;
-  border-radius: 2px;
+  padding: 4px 8px;
+  border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 }
 
 .collect-btn {
@@ -513,24 +632,7 @@ onMounted(() => {
   color: #faad14;
 }
 
-/* 时间+地址 */
-.step-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-left: 32px;
-  font-size: 13px;
-}
-
-.custom-step-time {
-  font-weight: 500;
-}
-
-.custom-step-address {
-  color: #666;
-}
-
-/* 备注弹窗样式 */
+/* 备注弹窗 */
 .modal-mask {
   position: fixed;
   top: 0;

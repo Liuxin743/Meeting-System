@@ -2,10 +2,17 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 export const useAgendaStore = defineStore('agenda', () => {
-  // 核心：响应式议程列表（跨页面共享，实时同步）
+  // 议程列表（响应式）
   const agendaList = ref([]);
 
-  // 1. 切换收藏状态（翻转 isCollected，持久化存储）
+  // 生成唯一字符串ID（核心修复：避免ID重复）
+  const generateUniqueId = () => {
+    const timestamp = new Date().getTime().toString(36);
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `${timestamp}-${randomStr}`; // 格式：1718888888888-abc123
+  };
+
+  // 1. 切换议程收藏状态
   const toggleAgendaCollect = (agendaId) => {
     const agenda = agendaList.value.find(item => item.id === agendaId);
     if (agenda) {
@@ -42,26 +49,37 @@ export const useAgendaStore = defineStore('agenda', () => {
     }
   };
 
-  // 6. 加载本地持久化数据
+  // 6. 加载本地存储的议程数据（兼容旧数据）
   const loadAgendaFromLocalStorage = () => {
     const savedAgendas = localStorage.getItem('agendaList');
     if (savedAgendas) {
-      agendaList.value = JSON.parse(savedAgendas);
+      let parsedAgendas = JSON.parse(savedAgendas);
+      // 数据迁移：兼容旧的数字ID、补充缺失字段
+      parsedAgendas = parsedAgendas.map(agenda => ({
+        ...agenda,
+        id: String(agenda.id), // 数字ID转为字符串
+        venueId: agenda.venueId || '', // 补充缺失的venueId
+        flows: agenda.flows || [], // 确保flows字段存在
+        isCollected: agenda.isCollected || false // 补充收藏状态
+      }));
+      agendaList.value = parsedAgendas;
     }
   };
 
-  // 7. 清除议程缓存
+  // 7. 清除所有议程缓存
   const clearAgendaStorage = () => {
     agendaList.value = [];
     localStorage.removeItem('agendaList');
   };
 
-  // 8. 添加新议程（优化：支持 flows 字段，完整存储会议流程）
+  // 8. 添加新议程（核心修复：直接接收所有字段，push到数组尾部）
   const addNewAgenda = (newAgenda) => {
-    const agendaId = Date.now() + Math.floor(Math.random() * 1000);
+    const agendaId = generateUniqueId();
     let agendaTime = newAgenda.time;
+    
+    // 格式化时间（统一格式：YYYY-MM-DD HH:MM）
     if (agendaTime) {
-      agendaTime = agendaTime.replace('T', ' ');
+      agendaTime = agendaTime.includes('T') ? agendaTime.replace('T', ' ') : agendaTime;
     } else {
       const now = new Date();
       const year = now.getFullYear();
@@ -71,45 +89,53 @@ export const useAgendaStore = defineStore('agenda', () => {
       const minute = String(now.getMinutes()).padStart(2, '0');
       agendaTime = `${year}-${month}-${day} ${hour}:${minute}`;
     }
+
+    // 构建完整议程对象
     const agenda = {
       id: agendaId,
       title: newAgenda.title || '未命名议程',
       time: agendaTime,
-      // 支持接收 tags 参数，无则默认空数组
+      venueId: newAgenda.venueId || '', // 直接存储关联会场ID
       tags: newAgenda.tags || [],
-      // 支持接收 remark 参数，无则默认空字符串
       remark: newAgenda.remark || '',
-      // 新增：支持 flows 字段，无则默认空数组（存储会议流程步骤）
-      flows: newAgenda.flows || [],
-      isCollected: false
+      flows: newAgenda.flows || [], // 流程步骤
+      isCollected: false // 默认未收藏
     };
+
+    // 关键：push到数组尾部，实现议程叠加
     agendaList.value.push(agenda);
+    // 同步到本地存储
     localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
     return agendaId;
   };
 
-  // 9. 更新议程
+  // 9. 更新现有议程
   const updateAgenda = (agendaId, updateData) => {
     const agenda = agendaList.value.find(item => item.id === agendaId);
     if (agenda) {
-      // 若更新数据包含 time，保持原有格式转换逻辑
+      // 格式化时间（如果更新了时间）
       if (updateData.time && updateData.time.includes('T')) {
         updateData.time = updateData.time.replace('T', ' ');
       }
+      // 合并更新数据
       Object.assign(agenda, updateData);
+      // 同步到本地存储
       localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
     }
   };
 
-  // 新增：更新单个议程的流程数据
-const updateAgendaFlows = (agendaId, newFlows) => {
-  const agenda = agendaList.value.find(item => item.id === agendaId);
-  if (agenda) {
-    agenda.flows = newFlows || [];
-    localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
-  }
-};
-  // 导出响应式数据和方法
+  // 10. 更新议程流程（响应式更新）
+  const updateAgendaFlows = (agendaId, newFlows) => {
+    const agenda = agendaList.value.find(item => item.id === agendaId);
+    if (agenda) {
+      // 清空原数组后push新数据（触发Pinia响应式）
+      agenda.flows.splice(0, agenda.flows.length);
+      agenda.flows.push(...(newFlows || []));
+      // 同步到本地存储
+      localStorage.setItem('agendaList', JSON.stringify(agendaList.value));
+    }
+  };
+
   return {
     agendaList,
     toggleAgendaCollect,
