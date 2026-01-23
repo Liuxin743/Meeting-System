@@ -70,7 +70,6 @@
 
         <!-- 议程列表 -->
         <div class="flow-step-list" v-else>
-          <!-- 议程 -->
           <div 
             class="agenda-item" 
             v-for="(agenda, aIndex) in currentVenueAgendas" 
@@ -82,7 +81,6 @@
               @click="toggleAgendaExpand(agenda.id)"
               :style="{ borderLeftColor: currentVenue.color }"
             >
-              <!-- 议程序号 -->
               <span class="agenda-num" :style="{ backgroundColor: currentVenue.color, color: '#fff' }">
                 {{ aIndex + 1 }}
               </span>
@@ -100,23 +98,21 @@
                 :key="`${agenda.id}-${sIndex}`"
               >
                 <div class="custom-step-header">
-                  <!-- 流程步骤序号 -->
                   <span class="custom-step-num" :style="{ backgroundColor: currentVenue.color, color: '#fff' }">
                     {{ sIndex + 1 }}
                   </span>
                   <div class="step-info-wrap">
                     <h4 class="custom-step-title">{{ step.title }}</h4>
                     <div class="custom-step-desc">{{ step.desc || '无描述' }}</div>
-                    <!-- 时间+地址 -->
                     <div class="step-meta">
                       <span class="custom-step-time" :style="{ color: currentVenue.color }">
-                        {{ formatTime(step.time) }}
+                        {{ formatTime(step.time || agenda.time) }}
                       </span>
                       <span class="custom-step-address">
                         地址：{{ step.address || currentVenue.address }}
                       </span>
                     </div>
-                    <!-- 收藏/备注-->
+                    <!-- 收藏/备注 -->
                     <div class="step-actions-bottom">
                       <span 
                         class="action-btn collect-btn"
@@ -161,20 +157,17 @@
 </template>
 
 <script setup>
-// JS部分完全不变
 import { ref, onMounted, computed, watch } from "vue";
 import { useAgendaStore } from '../../stores/agendaStore';
+import { useScheduleStore } from '../../stores/scheduleStore';
 
-// 初始化Pinia仓库
+// 初始化仓库
 const agendaStore = useAgendaStore();
+const scheduleStore = useScheduleStore();
 
 // 会场数据
 const customVenues = ref(JSON.parse(localStorage.getItem('customVenues')) || []);
-// 收藏/备注数据
-const userCollections = ref(JSON.parse(localStorage.getItem('userCollections')) || {
-  agendaIds: [],
-  flowSteps: []
-});
+// 备注数据
 const userRemarks = ref(JSON.parse(localStorage.getItem('userRemarks')) || {
   agendas: {},
   flowSteps: {}
@@ -186,7 +179,6 @@ const defaultBannerUrl = ref('https://img.ixintu.com/download/jpg/202308/6673017
 
 // 激活的会场ID
 const activeVenueId = ref(customVenues.value[0]?.id || '');
-
 // 折叠/展开状态
 const expandedAgendaIds = ref([]);
 
@@ -210,38 +202,49 @@ const currentVenueAgendas = computed(() => {
 // 时间格式化方法
 function formatTime(datetimeStr) {
   if (!datetimeStr) return '未设置';
-  const date = new Date(datetimeStr);
+  
+  // 处理不同时间格式
+  let date;
+  if (datetimeStr.includes('T')) {
+    date = new Date(datetimeStr);
+  } else if (datetimeStr.includes(' ')) {
+    const [datePart, timePart] = datetimeStr.split(' ');
+    date = new Date(`${datePart}T${timePart}`);
+  } else {
+    date = new Date(datetimeStr);
+  }
+
+  if (isNaN(date.getTime())) {
+    if (datetimeStr.includes('-')) return datetimeStr;
+    return '时间格式错误';
+  }
+
   return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')} - ${date.getHours() + 1}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 // 同步数据到本地存储
 function syncGlobalDataToLocal() {
-  localStorage.setItem('userCollections', JSON.stringify(userCollections.value));
   localStorage.setItem('userRemarks', JSON.stringify(userRemarks.value));
   localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
 }
 
-// 收藏相关方法
+// ========== 收藏相关方法 ==========
 function isFlowStepCollected(agendaId, stepIndex) {
-  return userCollections.value.flowSteps.some(item => 
-    item.agendaId === agendaId && item.stepIndex === stepIndex
-  );
+  return scheduleStore.isFlowStepCollected(agendaId, stepIndex);
 }
 
 function toggleFlowStepCollect(agendaId, stepIndex) {
-  const index = userCollections.value.flowSteps.findIndex(item => 
-    item.agendaId === agendaId && item.stepIndex === stepIndex
-  );
+  // 收藏切换
+  scheduleStore.toggleFlowStepCollect(agendaId, stepIndex);
+  // 更新收藏状态
+  agendaStore.toggleAgendaCollect(agendaId);
   
-  if (index > -1) {
-    userCollections.value.flowSteps.splice(index, 1);
-  } else {
-    userCollections.value.flowSteps.push({ agendaId, stepIndex });
-  }
-  syncGlobalDataToLocal();
+  setTimeout(() => {
+    agendaStore.agendaList = [...agendaStore.agendaList];
+  }, 0);
 }
 
-// 备注相关方法
+// 备注
 function getFlowStepRemark(agendaId, stepIndex) {
   const key = `${agendaId}_${stepIndex}`;
   return userRemarks.value.flowSteps[key] || '';
@@ -273,10 +276,9 @@ function saveFlowStepRemark() {
   }
 }
 
-// 切换会场方法
+// 切换会场
 function switchVenue(venueId) {
   activeVenueId.value = venueId;
-  // 切换会场后重置折叠状态
   expandedAgendaIds.value = [];
 }
 
@@ -291,14 +293,12 @@ function toggleAgendaExpand(agendaId) {
 
 // 页面挂载逻辑
 onMounted(() => {
-  // 1. 加载Pinia仓库中的议程数据
+  // 加载议程数据
   agendaStore.loadAgendaFromLocalStorage();
   
-  // 2. 同步会场/收藏/备注数据
+  // 同步数据
   window.addEventListener('storage', (e) => {
-    if (e.key === 'userCollections') {
-      userCollections.value = JSON.parse(e.newValue || JSON.stringify({ agendaIds: [], flowSteps: [] }));
-    } else if (e.key === 'userRemarks') {
+    if (e.key === 'userRemarks') {
       userRemarks.value = JSON.parse(e.newValue || JSON.stringify({ agendas: {}, flowSteps: {} }));
     } else if (e.key === 'customVenues') {
       customVenues.value = JSON.parse(e.newValue || '[]');
@@ -307,17 +307,26 @@ onMounted(() => {
       }
     } else if (e.key === 'agendaList') {
       agendaStore.loadAgendaFromLocalStorage();
+    } else if (e.key === 'collectedFlowSteps') {
+      // 更新收藏状态
+      scheduleStore.collectedFlowSteps = JSON.parse(e.newValue || '[]');
+      scheduleStore.coreScheduleTime = { ...scheduleStore.coreScheduleTime };
     }
   });
 
-  // 3. 监听会场数据变化，自动保存到本地
+  // 监听数据变化，自动保存
   watch(customVenues, () => {
     localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
   }, { deep: true });
 
-  // 4. 监听收藏/备注变化，自动保存
-  watch([userCollections, userRemarks], () => {
+  watch(userRemarks, () => {
     syncGlobalDataToLocal();
+  }, { deep: true });
+
+  // 监听agendaList变化，确保实时更新
+  watch(() => agendaStore.agendaList, () => {
+    // 强制触发scheduleStore的计算属性更新
+    scheduleStore.coreScheduleTime = { ...scheduleStore.coreScheduleTime };
   }, { deep: true });
 });
 </script>
@@ -591,7 +600,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
-  margin-bottom: 8px; /* 给下方按钮留间距 */
+  margin-bottom: 8px;
 }
 
 .custom-step-time {
@@ -601,7 +610,6 @@ onMounted(() => {
 .custom-step-address {
   color: #666;
 }
-
 
 .step-actions-bottom {
   display: flex;

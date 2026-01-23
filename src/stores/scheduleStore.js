@@ -1,130 +1,281 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { useAgendaStore } from './agendaStore';
 
 export const useScheduleStore = defineStore('schedule', () => {
-  // 1. 重要通知列表
-  const notifications = ref([]);
+  const agendaStore = useAgendaStore();
 
-  // 2. 核心日程时间 + 个人专属日程
+  // 核心状态
+  const notifications = ref([]);
   const coreScheduleTime = ref({
     meetingTime: new Date(Date.now() + 24 * 60 * 60 * 1000),
     personalSchedule: []
   });
 
-  // 3. 会议流程数据（主/分会场，供同步到个人日程用）
-  const meetingFlows = ref({
-    main: [
-      {
-        title: "会议开幕致辞",
-        desc: "主持人介绍本次会议核心议题、参会嘉宾及会议整体安排",
-        time: "09:00 - 09:15"
-      },
-      {
-        title: "高层领导年度总结",
-        desc: "公布上一年度会议落地成果、核心数据及存在的问题",
-        time: "09:15 - 10:00"
-      },
-      {
-        title: "核心项目进展汇报",
-        desc: "各核心项目负责人依次汇报项目当前进展、后续计划及需协调资源",
-        time: "10:00 - 11:30"
-      },
-      {
-        title: "茶歇休息",
-        desc: "参会人员自由交流，领取会议资料及伴手礼",
-        time: "11:30 - 11:45"
-      },
-      {
-        title: "未来规划部署",
-        desc: "高层领导公布下一年度会议核心目标、战略布局及落地路径",
-        time: "11:45 - 12:30"
-      },
-      {
-        title: "主会场会议闭幕",
-        desc: "主持人总结主会场核心内容，宣布分会场会议开始",
-        time: "12:30 - 12:40"
+  // 收藏的流程步骤（本地存储持久化）
+  const collectedFlowSteps = ref(
+    JSON.parse(localStorage.getItem('collectedFlowSteps') || '[]')
+  );
+
+  // 个人专属日程（所有流程步骤）
+  const personalSchedule = computed(() => {
+    const _ = agendaStore.agendaList; 
+    const allSteps = [];
+
+    agendaStore.agendaList.forEach(agenda => {
+      if (agenda.flows && agenda.flows.length) {
+        agenda.flows.forEach((step, stepIndex) => {
+          const isCollected = collectedFlowSteps.value.some(item => 
+            item.agendaId === agenda.id && item.stepIndex === stepIndex
+          );
+          const isEnded = isStepEnded(step.time || agenda.time);
+          
+          allSteps.push({
+            id: `${agenda.id}-${stepIndex}`,
+            agendaId: agenda.id,
+            stepIndex,
+            title: step.title || '未命名步骤',
+            time: step.time || agenda.time || '时间未设置',
+            content: step.title || '未命名步骤', 
+            desc: step.desc || '无描述',
+            icon: 'calendar-o', 
+            isCollected,
+            isEnded,
+            countdown: calculateCountdown(step.time || agenda.time)
+          });
+        });
       }
-    ],
-    branch: [
-      {
-        title: "分会场签到入场",
-        desc: "参会人员按所属领域签到，领取分会场专属资料及座位牌",
-        time: "14:00 - 14:15"
-      },
-      {
-        title: "分会场议题解读",
-        desc: "各分会场主持人解读本领域议题细节、讨论规则及预期成果",
-        time: "14:15 - 14:30"
-      },
-      {
-        title: "分组讨论交流",
-        desc: "参会人员分组讨论本领域痛点、解决方案及落地建议，记录核心观点",
-        time: "14:30 - 16:00"
-      },
-      {
-        title: "小组成果汇报",
-        desc: "各小组代表依次汇报讨论成果，其他小组可补充提问",
-        time: "16:00 - 17:00"
-      },
-      {
-        title: "分会场总结点评",
-        desc: "分会场专家对各小组成果进行点评，提炼核心结论及可落地方案",
-        time: "17:00 - 17:30"
-      },
-      {
-        title: "分会场会议闭幕",
-        desc: "主持人总结分会场成果，收集参会人员反馈，宣布会议结束",
-        time: "17:30 - 17:40"
-      }
-    ]
+    });
+
+    return allSteps;
   });
 
-  // 4. 同步会议流程到个人专属日程
-  const syncFlowToPersonalSchedule = (flowType = 'main') => {
-    const targetFlow = meetingFlows.value[flowType];
-    if (!targetFlow) return;
+  // 想听日程（仅已收藏的流程步骤）
+  const wishSchedule = computed(() => {
+    const _ = agendaStore.agendaList;
+    const collectedSteps = [];
 
-    // 转换为个人专属日程格式
-    coreScheduleTime.value.personalSchedule = targetFlow.map(step => ({
-      time: step.time,
-      content: step.title,
-      icon: 'calendar-o'
-    }));
+    collectedFlowSteps.value.forEach(collected => {
+      const agenda = agendaStore.agendaList.find(item => item.id === collected.agendaId);
+      if (agenda && agenda.flows && agenda.flows[collected.stepIndex]) {
+        const step = agenda.flows[collected.stepIndex];
+        const isEnded = isStepEnded(step.time || agenda.time);
+        
+        collectedSteps.push({
+          id: `${agenda.id}-${collected.stepIndex}`,
+          agendaId: agenda.id,
+          stepIndex: collected.stepIndex,
+          title: step.title || '未命名步骤',
+          time: step.time || agenda.time || '时间未设置',
+          content: step.title || '未命名步骤',
+          desc: step.desc || '无描述',
+          icon: 'calendar-o', 
+          isEnded,
+          countdown: calculateCountdown(step.time || agenda.time)
+        });
+      }
+    });
+
+    return collectedSteps;
+  });
+
+  // 判断流程是否已结束
+  function isStepEnded(timeStr) {
+    if (!timeStr) return false;
+    
+    try {
+      let endTime;
+      if (timeStr.includes('-') && !timeStr.includes('T')) {
+        const [_, endStr] = timeStr.split('-').map(t => t.trim());
+        const today = new Date();
+        const [endHour, endMinute] = endStr.split(':').map(Number);
+        endTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), endHour, endMinute);
+      } 
+      else {
+        const formattedTime = timeStr.replace(' ', 'T');
+        endTime = new Date(formattedTime);
+        if (!isNaN(endTime.getTime()) && endTime.getHours() === 0 && endTime.getMinutes() === 0) {
+          endTime = new Date(endTime);
+          endTime.setHours(23, 59, 59);
+        }
+      }
+      
+      return !isNaN(endTime.getTime()) && new Date() > endTime;
+    } catch (error) {
+      console.error('判断流程是否结束失败:', error);
+      return false;
+    }
+  }
+
+  // 计算倒计时
+  function calculateCountdown(timeStr) {
+    if (!timeStr) return '时间未设置';
+    
+    try {
+      let startTime;
+      // 处理时间段格式
+      if (timeStr.includes('-') && !timeStr.includes('T')) {
+        const [startStr] = timeStr.split('-').map(t => t.trim());
+        const today = new Date();
+        const [startHour, startMinute] = startStr.split(':').map(Number);
+        startTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), startHour, startMinute);
+      } 
+      else {
+        const formattedTime = timeStr.replace(' ', 'T');
+        startTime = new Date(formattedTime);
+      }
+
+      // 验证时间是否有效
+      if (isNaN(startTime.getTime())) {
+        return '时间格式错误';
+      }
+      
+      const now = new Date();
+      const diff = startTime - now;
+
+      // 已结束
+      if (diff < 0) return '已结束';
+
+      // 计算天、时、分、秒
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      
+      // 拼接倒计时文本
+      let countdownText = '';
+      if (days > 0) {
+        countdownText += `${days}天`;
+      }
+      if (hours > 0 || days > 0) {
+        countdownText += `${hours}时`;
+      }
+      if (minutes > 0 || hours > 0 || days > 0) {
+        countdownText += `${minutes}分`;
+      }
+      countdownText += `${seconds}秒后开始`;
+      
+      return countdownText;
+    } catch (error) {
+      console.error('计算倒计时失败:', error);
+      return '时间解析失败';
+    }
+  }
+  // 切换收藏状态
+  const toggleFlowStepCollect = (agendaId, stepIndex) => {
+    const index = collectedFlowSteps.value.findIndex(item => 
+      item.agendaId === agendaId && item.stepIndex === stepIndex
+    );
+    if (index > -1) {
+      // 取消收藏
+      collectedFlowSteps.value.splice(index, 1);
+    } else {
+      // 新增收藏
+      collectedFlowSteps.value.push({ agendaId, stepIndex });
+    }
+    // 同步到本地存储
+    localStorage.setItem('collectedFlowSteps', JSON.stringify(collectedFlowSteps.value));
+    // 触发计算属性更新
+    coreScheduleTime.value = { ...coreScheduleTime.value };
   };
 
-  // 5. 添加议程修改通知
-  const addAgendaEditNotification = (agenda) => {
-    const newNotice = {
-      id: Date.now(),
-      type: '议程修改',
-      title: `议程“${agenda.title}”已更新`,
-      content: `更新后时间：${agenda.time}`,
-      status: '已生效',
-      createTime: new Date().toLocaleString()
-    };
-    notifications.value.unshift(newNotice);
+  // 判断是否已收藏
+  const isFlowStepCollected = (agendaId, stepIndex) => {
+    return collectedFlowSteps.value.some(item => 
+      item.agendaId === agendaId && item.stepIndex === stepIndex
+    );
   };
 
-  // 6. 更新核心日程时间
-  const updateCoreScheduleTime = (newTime, newPersonalSchedule = null) => {
-    coreScheduleTime.value.meetingTime = newTime;
-    if (newPersonalSchedule && Array.isArray(newPersonalSchedule)) {
-      coreScheduleTime.value.personalSchedule = newPersonalSchedule;
+  // 清空个人专属日程中已结束的项
+  const clearEndedPersonalSchedule = () => {
+    try {
+      const endedItems = personalSchedule.value.filter(item => item.isEnded);
+      if (endedItems.length === 0) return;
+      
+      // 移除已结束项的收藏状态
+      endedItems.forEach(item => {
+        const { agendaId, stepIndex } = item;
+        const collectIndex = collectedFlowSteps.value.findIndex(col => 
+          col.agendaId === agendaId && col.stepIndex === stepIndex
+        );
+        if (collectIndex > -1) {
+          collectedFlowSteps.value.splice(collectIndex, 1);
+        }
+      });
+      
+      // 同步到本地存储
+      localStorage.setItem('collectedFlowSteps', JSON.stringify(collectedFlowSteps.value));
+      // 触发更新
+      coreScheduleTime.value = { ...coreScheduleTime.value };
+      console.log(`已自动清空 ${endedItems.length} 个已结束的日程`);
+    } catch (error) {
+      console.error('自动清空已结束日程失败:', error);
     }
   };
 
-  // 7. 清空通知
+  // 自动清空定时器
+  const getTomorrow8AM = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 0, 0, 0);
+    return tomorrow.getTime();
+  };
+
+  const startAutoClearTimer = () => {
+    // 防止重复启动
+    if (window.autoClearTimer) {
+      clearTimeout(window.autoClearTimer);
+    }
+    
+    const now = new Date().getTime();
+    const tomorrow8AM = getTomorrow8AM();
+    const delay = tomorrow8AM - now;
+
+    // 设置定时器
+    window.autoClearTimer = setTimeout(() => {
+      clearEndedPersonalSchedule();
+      // 循环启动下一天的定时器
+      startAutoClearTimer();
+    }, delay);
+    console.log(`自动清空定时器已启动，将在 ${new Date(tomorrow8AM).toLocaleString()} 执行`);
+  };
+
+  watch(collectedFlowSteps, () => {
+    // 确保只启动一次定时器
+    if (!window.autoClearTimerStarted) {
+      startAutoClearTimer();
+      window.autoClearTimerStarted = true;
+    }
+  }, { immediate: true });
+
+  // 其他辅助方法
+  const addAgendaEditNotification = (agenda) => {
+    notifications.value.unshift({
+      id: Date.now(),
+      title: `议程「${agenda.title}」已更新`,
+      content: `更新后时间：${agenda.time}`,
+      status: '已生效',
+      createTime: new Date().toLocaleString()
+    });
+  };
+
+  // 清空通知
   const clearNotifications = () => {
     notifications.value = [];
   };
 
   return {
+    // 状态
     notifications,
     coreScheduleTime,
-    meetingFlows,
-    addAgendaEditNotification, 
-    updateCoreScheduleTime,
+    personalSchedule,
+    wishSchedule,
+    // 方法
+    toggleFlowStepCollect,
+    isFlowStepCollected,
+    calculateCountdown,
+    addAgendaEditNotification,
     clearNotifications,
-    syncFlowToPersonalSchedule
+    clearEndedPersonalSchedule
   };
 });
