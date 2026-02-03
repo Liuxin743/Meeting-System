@@ -19,6 +19,8 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css' // Element Plus 全局样式
 import * as ElementPlusIconsVue from '@element-plus/icons-vue' // Element Plus 图标库
 
+
+
 // 5. 创建 Vue 应用实例
 const app = createApp(App)
 
@@ -62,3 +64,4 @@ app.use(router)
 
 // 10. 挂载 Vue 应用到 DOM 节点（public/index.html 中的 <div id="app"></div>）
 app.mount('#app')
+

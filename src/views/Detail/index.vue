@@ -9,7 +9,7 @@
         <div class="cell-group">
           <!-- 无内容提示 -->
           <div v-if="personalSchedule.length === 0" class="empty-tip">
-            暂无个人专属日程，请前往「会议流程」页同步数据或收藏流程步骤
+            暂无个人专属日程
           </div>
           <div 
             class="cell-item report-item" 

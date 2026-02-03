@@ -2,7 +2,9 @@
   <div class="main-tabbar-container">
     <van-config-provider :theme-vars="themeVars">
       <router-view class="page-container" />
+      <!-- 核心：仅在路由meta标记showTabbar=true时显示tabbar -->
       <van-tabbar
+        v-if="showTabbar"
         v-model="activeTab"
         class="bottom-tabbar"
         fixed
@@ -26,7 +28,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { reactive } from "vue";
 
@@ -47,14 +49,19 @@ const themeVars = reactive({
 // Tabbar 激活状态
 const activeTab = ref(0);
 
-// 监听路由变化，更新Tabbar激活状态
+// 核心计算属性：判断当前页面是否需要显示tabbar
+const showTabbar = computed(() => {
+  // 只有路由meta中showTabbar为true时才显示，否则隐藏
+  return route.meta.showTabbar === true;
+});
+
+// 监听路由变化，更新Tabbar激活状态（仅在显示tabbar时生效）
 watch(
   () => route.path,
   (newPath) => {
-    const currentRoute = router
-      .getRoutes()
-      .find((route) => route.path === newPath);
-    if (currentRoute && currentRoute.meta.tabIndex !== undefined) {
+    const currentRoute = router.getRoutes().find((route) => route.path === newPath);
+    // 仅在需要显示tabbar的页面更新激活状态
+    if (currentRoute && currentRoute.meta.tabIndex !== undefined && showTabbar.value) {
       activeTab.value = currentRoute.meta.tabIndex;
     }
   },
@@ -78,7 +85,8 @@ const handleTabChange = (index) => {
 <style scoped>
 .main-tabbar-container {
   min-height: 100vh;
-  padding-bottom: 55px; 
+  /* 动态适配padding：显示tabbar时加55px底部padding，隐藏时为0 */
+  padding-bottom: v-bind(showTabbar ? '55px' : '0px'); 
   position: relative;
   box-sizing: border-box; 
 }
@@ -93,7 +101,6 @@ const handleTabChange = (index) => {
   width: 100%;
   height: 100%;
 }
-
 
 .custom-tab-item {
   display: flex;
@@ -123,7 +130,6 @@ const handleTabChange = (index) => {
 .van-tabbar-item--active .tab-custom-text {
   color: #1989fa !important; 
 }
-
 
 .van-tabbar-item__text {
   padding: 0 !important;

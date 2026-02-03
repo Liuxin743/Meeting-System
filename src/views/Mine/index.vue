@@ -1,22 +1,22 @@
 <template>
   <div class="mine-view">
     <div class="page-content">
-      <!-- 个人信息卡片 -->
-      <div class="user-card card-common" style="margin-bottom: 10px;" @click="openUserEditDialog">
+      <!-- 个人信息卡片（头像/用户名从 Pinia 读取，实时更新） -->
+      <div class="user-card card-common" style="margin-bottom: 10px;" @click="goToProfile">
         <div class="user-info">
           <div class="user-avatar">
-            <van-icon v-if="!userAvatar" name="user" size="30" color="#1989fa" />
-            <img v-else class="avatar-img" :src="userAvatar" alt="用户头像" />
+            <van-icon v-if="!avatarUrl" name="user" size="30" color="#1989fa" />
+            <img v-else class="avatar-img" :src="avatarUrl" alt="用户头像" />
           </div>
           <div class="user-detail">
-            <div class="user-name">{{ userName }}</div>
-            <div class="user-id">ID：10001</div>
+            <div class="user-name">{{ userStore.userInfo.username || '默认用户' }}</div>
+            <div class="user-id">ID：{{ userStore.userInfo.id || '10001' }}</div>
             <div class="edit-tip">点击可编辑头像和名称</div>
           </div>
         </div>
       </div>
 
-      <!-- 功能入口 -->
+      <!-- 功能分组 -->
       <div class="function-group card-common" style="margin-top: 10px;">
         <div class="function-item" @click="goToCollection">
           <van-icon name="star" size="20" color="#1989fa" class="function-icon" />
@@ -36,6 +36,11 @@
         <div class="function-item" @click="goToSetting">
           <van-icon name="setting" size="20" color="#1989fa" class="function-icon" />
           <span class="function-title">系统设置</span>
+          <van-icon name="arrow-right" size="16" color="#c8c9cc" class="function-arrow" />
+        </div>
+        <div class="function-item" @click="handleLogout" style="color: #ff4d4f;">
+          <van-icon name="delete" size="20" color="#ff4d4f" class="function-icon" />
+          <span class="function-title">退出登录</span>
           <van-icon name="arrow-right" size="16" color="#c8c9cc" class="function-arrow" />
         </div>
       </div>
@@ -61,28 +66,22 @@
         <div class="venue-list" v-else>
           <div class="venue-item" v-for="venue in venues" :key="venue.id">
             <div class="venue-content" :style="{ borderLeft: `4px solid ${venue.color}` }">
-              <!-- 标题+类型标签 -->
               <div class="venue-title-wrap">
                 <div class="venue-title">{{ venue.name }}</div>
                 <span class="venue-type-tag" :style="{ backgroundColor: venue.color }">{{ venue.type }}</span>
               </div>
-              
-              <!-- 会议详情 + 操作按钮 -->
               <div class="venue-detail-row">
                 <div class="venue-detail">
                   <div class="venue-label">会议时间：{{ formatAgendaTime(venue.time) }}</div>
                   <div class="venue-label">会议地址：{{ venue.address }}</div>
                   <div class="venue-label">关联议程：{{ getAgendaCountByVenueId(venue.id) }} 个</div>
                 </div>
-                <!-- 操作按钮 -->
                 <div class="venue-actions-left">
                   <button class="btn-edit mini-btn" @click="openEditVenueDialog(venue)">编辑</button>
                   <button class="btn-edit mini-btn" style="background-color: #ff9500;" @click="openOnlyAgendaDialog(venue.id)">创建议程</button>
                   <button class="btn-danger mini-btn" @click="deleteVenue(venue.id)">删除</button>
                 </div>
               </div>
-              
-              <!--点击分享ID自动复制 -->
               <div class="share-id-row">
                 <span class="share-id-label">分享ID：</span>
                 <span 
@@ -179,10 +178,9 @@
           </div>
         </div>
       </div>
-
     </div>
 
-    <!-- 编辑会场弹窗 -->
+    <!-- 所有弹窗（保持原有逻辑，无修改） -->
     <div
       class="dialog-mask"
       v-if="createVenueDialogVisible"
@@ -241,7 +239,6 @@
       </div>
     </div>
 
-    <!-- 创建会议弹窗-->
     <div
       class="dialog-mask"
       v-if="createDialogVisible"
@@ -366,7 +363,6 @@
       </div>
     </div>
 
-    <!-- 仅创建会场弹窗 -->
     <div
       class="dialog-mask"
       v-if="onlyVenueDialogVisible"
@@ -425,7 +421,6 @@
       </div>
     </div>
 
-    <!-- 仅创建议程弹窗 -->
     <div
       class="dialog-mask"
       v-if="onlyAgendaDialogVisible"
@@ -514,7 +509,6 @@
       </div>
     </div>
 
-    <!-- 编辑流程弹窗 -->
     <div
       class="dialog-mask"
       v-if="editFlowDialogVisible"
@@ -578,53 +572,6 @@
       </div>
     </div>
 
-    <!-- 编辑用户信息弹窗 -->
-    <van-dialog
-      v-model:show="userEditDialogVisible"
-      title="编辑个人信息"
-      width="90%"
-      confirm-button-text="保存"
-      cancel-button-text="取消"
-      @confirm="saveUserInfo"
-      @cancel="resetUploader"
-    >
-      <div class="user-edit-content">
-        <div class="edit-item">
-          <label class="edit-label">头像：</label>
-          <div class="avatar-upload">
-            <div class="preview-avatar">
-              <van-icon v-if="!tempAvatar && !userAvatar" name="user" size="25" color="#1989fa" />
-              <img v-else class="preview-img" :src="tempAvatar || userAvatar" alt="预览头像" />
-            </div>
-            <van-uploader
-              v-model="uploaderFiles"
-              accept="image/*"
-              max-count="1"
-              :preview-size="0"
-              :after-read="handleAfterRead"
-              :before-delete="handleBeforeDelete"
-              class="avatar-uploader"
-            >
-              <button class="upload-btn van-button van-button--primary van-button--mini">
-                选择图片
-              </button>
-            </van-uploader>
-            <div class="upload-tip">支持 JPG、PNG 格式，大小不超过 2MB</div>
-          </div>
-        </div>
-        <div class="edit-item">
-          <label class="edit-label">用户名：</label>
-          <van-field
-            v-model="tempUserName"
-            placeholder="输入你的用户名"
-            required
-            class="name-input"
-          />
-        </div>
-      </div>
-    </van-dialog>
-
-    <!-- 编辑会议宣传图弹窗 -->
     <div
       class="dialog-mask"
       v-if="bannerEditDialogVisible"
@@ -668,7 +615,6 @@
       </div>
     </div>
 
-    <!-- 加入会场弹窗 -->
     <div
       class="dialog-mask"
       v-if="joinVenueDialogVisible"
@@ -700,7 +646,6 @@
       </div>
     </div>
 
-    <!-- 复制成功提示 -->
     <div class="toast-mask" v-if="copyToastVisible">
       <div class="toast-content">
         ✅ 分享ID已复制！
@@ -713,25 +658,32 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAgendaStore } from '../../stores/agendaStore'
+import { useUserStore } from '../../stores/userStore'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
+// 初始化路由和仓库
 const router = useRouter()
-const userName = ref('会议参与者')
-const userAvatar = ref('')
-
 const agendaStore = useAgendaStore()
+const userStore = useUserStore()
 
-// 宣传图相关
+// 核心修复：头像地址计算属性（正确读取 Pinia 嵌套数据，放宽校验）
+const avatarUrl = computed(() => {
+  // 正确读取 userStore.userInfo 中的 avatar 字段
+  const userAvatar = userStore.userInfo?.avatar || ''
+  // 校验：非空字符串即可（支持 http 网络地址和 data:image 本地预览地址）
+  if (typeof userAvatar === 'string' && userAvatar.trim().length > 0) {
+    return userAvatar
+  }
+  // 无效则返回空，显示默认图标
+  return ''
+})
+
+// 宣传图相关数据
 const bannerImageUrl = ref(localStorage.getItem('meetingBannerUrl') || '')
 const defaultBannerUrl = ref('https://pic1.zhimg.com/v2-ea1f5938445a9fb94d869d76c1d2c2a4_1440w.jpg')
 const bannerEditDialogVisible = ref(false)
 const tempBannerUrl = ref('')
 const bannerUrlInput = ref('')
-
-// 头像上传相关
-const userEditDialogVisible = ref(false)
-const tempUserName = ref('')
-const tempAvatar = ref('')
-const uploaderFiles = ref([])
 
 // 会场相关数据
 const venues = ref(JSON.parse(localStorage.getItem('customVenues')) || [])
@@ -747,7 +699,7 @@ const newVenue = reactive({
   color: '#1989fa'
 })
 
-// 合并后的会议数据
+// 合并会议数据
 const createDialogVisible = ref(false)
 const newMeeting = reactive({
   venue: {
@@ -765,7 +717,7 @@ const newMeeting = reactive({
   }
 })
 
-// 创建会场相关
+// 仅创建会场表单
 const onlyVenueDialogVisible = ref(false)
 const onlyVenueForm = reactive({
   id: '',
@@ -776,7 +728,7 @@ const onlyVenueForm = reactive({
   color: '#1989fa'
 })
 
-// 创建议程相关
+// 仅创建议程表单
 const onlyAgendaDialogVisible = ref(false)
 const onlyAgendaForm = reactive({
   venueId: '',
@@ -785,10 +737,10 @@ const onlyAgendaForm = reactive({
   flows: []
 })
 
-// 议程相关
-const agendas = computed(() => agendaStore.agendaList)
+// 议程列表（从 agendaStore 读取）
+const agendas = computed(() => agendaStore.agendaList || [])
 
-// 合并加入的会场与议程
+// 加入的会场与议程合并
 const joinedVenueAgendas = computed(() => {
   return joinedVenues.value.map(venue => {
     const venueAgendas = agendaStore.agendaList.filter(agenda => agenda.venueId === venue.id)
@@ -799,7 +751,7 @@ const joinedVenueAgendas = computed(() => {
   })
 })
 
-// 编辑流程弹窗相关
+// 编辑流程相关
 const editFlowDialogVisible = ref(false)
 const currentEditAgenda = reactive({
   id: '',
@@ -814,14 +766,14 @@ const joinVenueForm = reactive({
 })
 const copyToastVisible = ref(false)
 
-// 生成唯一ID
+// 工具函数：生成唯一ID
 const generateUniqueId = () => {
   const timestamp = new Date().getTime().toString(36)
   const randomNum = Math.random().toString(36).substring(2, 8)
   return `${timestamp}-${randomNum}`
 }
 
-// 生成6位分享ID
+// 工具函数：生成6位分享ID
 const generateShareId = () => {
   const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
   let shareId = ''
@@ -831,7 +783,7 @@ const generateShareId = () => {
   return shareId
 }
 
-// 格式化当前时间
+// 工具函数：格式化当前时间
 const formatCurrentDateTime = () => {
   const now = new Date()
   const year = now.getFullYear()
@@ -842,7 +794,7 @@ const formatCurrentDateTime = () => {
   return `${year}-${month}-${day}T${hour}:${minute}`
 }
 
-// 格式化时间显示
+// 工具函数：格式化时间显示
 const formatAgendaTime = (datetimeStr) => {
   if (!datetimeStr) return '未设置'
   const formatStr = datetimeStr.includes('T') ? datetimeStr.replace('T', ' ') : datetimeStr
@@ -850,16 +802,40 @@ const formatAgendaTime = (datetimeStr) => {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-// 保存非议程数据
+// 工具函数：保存本地存储
 const saveToLocalStorage = () => {
   localStorage.setItem('customVenues', JSON.stringify(venues.value))
   localStorage.setItem('joinedVenues', JSON.stringify(joinedVenues.value))
   localStorage.setItem('meetingBannerUrl', bannerImageUrl.value)
-  localStorage.setItem('userName', userName.value)
-  localStorage.setItem('userAvatar', userAvatar.value)
 }
 
-// 宣传图编辑
+// 页面跳转函数
+const goToCollection = () => router.push({ path: '/collection' })
+const goToRemark = () => router.push({ path: '/remark' })
+const goToSetting = () => router.push({ path: '/setting' })
+const goToProfile = () => router.push({ path: '/profile' })
+
+// 退出登录函数
+const handleLogout = () => {
+  ElMessageBox.confirm(
+    '确定要退出登录吗？',
+    '退出提示',
+    {
+      type: 'warning',
+      confirmButtonText: '确认退出',
+      cancelButtonText: '取消'
+    }
+  ).then(() => {
+    userStore.logout()
+    ElMessage.success('已成功退出登录')
+    router.push({ path: '/login', replace: true })
+    if (agendaStore.resetStore) agendaStore.resetStore()
+  }).catch(() => {
+    ElMessage.info('已取消退出')
+  })
+}
+
+// 宣传图编辑相关函数
 const openBannerEditDialog = () => {
   tempBannerUrl.value = bannerImageUrl.value
   bannerUrlInput.value = bannerImageUrl.value
@@ -870,12 +846,10 @@ const handleBannerUpload = (e) => {
   const file = e.target.files[0]
   if (!file) return
   if (!file.type.startsWith('image/')) {
-    alert('请上传图片格式的文件（JPG/PNG）')
-    return
+    return ElMessage.error('请上传图片格式的文件（JPG/PNG）')
   }
   if (file.size > 2 * 1024 * 1024) {
-    alert('图片大小不能超过2MB')
-    return
+    return ElMessage.error('图片大小不能超过2MB')
   }
   const reader = new FileReader()
   reader.onload = (event) => {
@@ -890,8 +864,7 @@ const saveBannerImage = () => {
   } else if (bannerUrlInput.value) {
     const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w.-]*)*\/?$/
     if (!urlPattern.test(bannerUrlInput.value)) {
-      alert('请输入有效的图片URL')
-      return
+      return ElMessage.error('请输入有效的图片URL')
     }
     bannerImageUrl.value = bannerUrlInput.value
   } else {
@@ -899,59 +872,10 @@ const saveBannerImage = () => {
   }
   saveToLocalStorage()
   bannerEditDialogVisible.value = false
-  alert('宣传图保存成功')
+  ElMessage.success('宣传图保存成功')
 }
 
-// 个人信息
-const handleAfterRead = (file) => {
-  tempAvatar.value = file.content
-  uploaderFiles.value = [file]
-}
-
-const handleBeforeDelete = () => {
-  tempAvatar.value = ''
-  uploaderFiles.value = []
-  return true 
-}
-
-const resetUploader = () => {
-  tempAvatar.value = ''
-  uploaderFiles.value = []
-}
-
-const openUserEditDialog = () => {
-  tempUserName.value = userName.value
-  tempAvatar.value = '' 
-  uploaderFiles.value = [] 
-  userEditDialogVisible.value = true
-}
-
-const saveUserInfo = () => {
-  if (!tempUserName.value.trim()) {
-    alert('姓名不能为空，请输入！')
-    return
-  }
-  userName.value = tempUserName.value.trim()
-  if (tempAvatar.value) {
-    userAvatar.value = tempAvatar.value
-  }
-  saveToLocalStorage()
-  resetUploader()
-  userEditDialogVisible.value = false
-}
-
-// 页面跳转 
-const goToCollection = () => {
-  router.push({ path: '/collection' })
-}
-const goToRemark = () => {
-  router.push({ path: '/remark' })
-}
-const goToSetting = () => {
-  router.push({ path: '/setting' })
-}
-
-// 会场操作方法
+// 会场操作相关函数
 const openEditVenueDialog = (venue) => {
   newVenue.id = venue.id
   newVenue.name = venue.name
@@ -966,43 +890,48 @@ const openEditVenueDialog = (venue) => {
 
 const createVenue = () => {
   if (!newVenue.name || !newVenue.time || !newVenue.address) {
-    alert('请填写必填字段')
-    return
+    return ElMessage.warning('请填写必填字段')
   }
   newVenue.id = generateUniqueId()
   newVenue.shareId = generateShareId()
-  newVenue.creatorName = userName.value
+  newVenue.creatorName = userStore.userInfo.username || '未知用户'
   venues.value.push({ ...newVenue })
   saveToLocalStorage()
   createVenueDialogVisible.value = false
-  alert('会场创建成功，分享ID：' + newVenue.shareId)
+  ElMessage.success(`会场创建成功，分享ID：${newVenue.shareId}`)
 }
 
 const saveEditVenue = () => {
   if (!newVenue.name || !newVenue.time || !newVenue.address) {
-    alert('请填写必填字段')
-    return
+    return ElMessage.warning('请填写必填字段')
   }
   const index = venues.value.findIndex(v => v.id === newVenue.id)
   if (index > -1) {
     venues.value[index] = { ...newVenue }
     saveToLocalStorage()
     createVenueDialogVisible.value = false
-    alert('会场修改成功')
+    ElMessage.success('会场修改成功')
   }
 }
 
 const deleteVenue = (venueId) => {
-  if (!confirm('确定删除该会场？关联的所有议程也会被删除')) return
-  venues.value = venues.value.filter(v => v.id !== venueId)
-  agendaStore.agendaList = agendaStore.agendaList.filter(a => a.venueId !== venueId)
-  joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
-  localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
-  saveToLocalStorage()
-  alert('会场及关联议程已删除')
+  ElMessageBox.confirm(
+    '确定删除该会场？关联的所有议程也会被删除',
+    '删除提示',
+    { type: 'warning' }
+  ).then(() => {
+    venues.value = venues.value.filter(v => v.id !== venueId)
+    agendaStore.agendaList = agendaStore.agendaList.filter(a => a.venueId !== venueId)
+    joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
+    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
+    saveToLocalStorage()
+    ElMessage.success('会场及关联议程已删除')
+  }).catch(() => {
+    ElMessage.info('已取消删除')
+  })
 }
 
-// 仅创建会场弹窗
+// 仅创建会场相关函数
 const openOnlyVenueDialog = () => {
   onlyVenueForm.id = generateUniqueId()
   onlyVenueForm.name = ''
@@ -1010,22 +939,22 @@ const openOnlyVenueDialog = () => {
   onlyVenueForm.time = formatCurrentDateTime()
   onlyVenueForm.address = ''
   onlyVenueForm.color = '#1989fa'
-  onlyVenueForm.creatorName = userName.value
+  onlyVenueForm.creatorName = userStore.userInfo.username || '未知用户'
   onlyVenueForm.shareId = generateShareId()
   onlyVenueDialogVisible.value = true
 }
 
 const handleCreateOnlyVenue = () => {
   if (!onlyVenueForm.name || !onlyVenueForm.time || !onlyVenueForm.address) {
-    return alert("请填写完整的会场信息")
+    return ElMessage.warning("请填写完整的会场信息")
   }
   venues.value.push({ ...onlyVenueForm })
   saveToLocalStorage()
   onlyVenueDialogVisible.value = false
-  alert("会场创建成功，分享ID：" + onlyVenueForm.shareId)
+  ElMessage.success(`会场创建成功，分享ID：${onlyVenueForm.shareId}`)
 }
 
-// 仅创建议程弹窗
+// 仅创建议程相关函数
 const openOnlyAgendaDialog = (preSelectedVenueId = '') => {
   onlyAgendaForm.venueId = preSelectedVenueId || ''
   onlyAgendaForm.title = ""
@@ -1040,18 +969,21 @@ const addNewOnlyAgendaFlowStep = () => {
 }
 
 const deleteOnlyAgendaFlowStep = (index) => {
-  if (confirm('确定要删除该流程步骤吗？删除后不可恢复')) {
+  ElMessageBox.confirm(
+    '确定要删除该流程步骤吗？删除后不可恢复',
+    '删除提示',
+    { type: 'warning' }
+  ).then(() => {
     onlyAgendaForm.flows.splice(index, 1)
-  }
+  }).catch(() => {
+    ElMessage.info('已取消删除')
+  })
 }
 
 const handleCreateOnlyAgenda = () => {
-  if (!onlyAgendaForm.venueId) {
-    return alert("请选择所属会场")
-  }
-  if (!onlyAgendaForm.title.trim()) {
-    return alert("请输入议程标题")
-  }
+  if (!onlyAgendaForm.venueId) return ElMessage.warning("请选择所属会场")
+  if (!onlyAgendaForm.title.trim()) return ElMessage.warning("请输入议程标题")
+
   const formattedFlows = onlyAgendaForm.flows.map(step => ({
     ...step,
     time: step.time ? step.time.replace('T', ' ') : ''
@@ -1064,10 +996,10 @@ const handleCreateOnlyAgenda = () => {
     flows: formattedFlows
   })
   onlyAgendaDialogVisible.value = false
-  alert("议程创建成功")
+  ElMessage.success("议程创建成功")
 }
 
-// 会场ID获取会场名称
+// 议程相关辅助函数
 const getVenueNameById = (venueId) => {
   const venue = venues.value.find(v => v.id === venueId)
   if (venue) return venue.name
@@ -1075,12 +1007,11 @@ const getVenueNameById = (venueId) => {
   return joinedVenue ? joinedVenue.name : '未知会场'
 }
 
-// 会场ID获取关联议程数量
 const getAgendaCountByVenueId = (venueId) => {
   return agendaStore.agendaList.filter(a => a.venueId === venueId).length
 }
 
-// 打开合并后的创建弹窗
+// 合并创建会议相关函数
 const openCreateDialog = () => {
   newMeeting.venue.id = generateUniqueId()
   newMeeting.venue.name = ''
@@ -1088,7 +1019,7 @@ const openCreateDialog = () => {
   newMeeting.venue.time = formatCurrentDateTime()
   newMeeting.venue.address = ''
   newMeeting.venue.color = '#1989fa'
-  newMeeting.venue.creatorName = userName.value
+  newMeeting.venue.creatorName = userStore.userInfo.username || '未知用户'
   newMeeting.venue.shareId = generateShareId()
   newMeeting.agenda.title = ""
   newMeeting.agenda.time = formatCurrentDateTime()
@@ -1102,18 +1033,23 @@ const addNewFlowStep = () => {
 }
 
 const deleteFlowStep = (index) => {
-  if (confirm('确定要删除该流程步骤吗？删除后不可恢复')) {
+  ElMessageBox.confirm(
+    '确定要删除该流程步骤吗？删除后不可恢复',
+    '删除提示',
+    { type: 'warning' }
+  ).then(() => {
     newMeeting.agenda.flows.splice(index, 1)
-  }
+  }).catch(() => {
+    ElMessage.info('已取消删除')
+  })
 }
 
 const handleCreateMeeting = () => {
   if (!newMeeting.venue.name || !newMeeting.venue.time || !newMeeting.venue.address) {
-    return alert("请填写完整的会场信息")
+    return ElMessage.warning("请填写完整的会场信息")
   }
-  if (!newMeeting.agenda.title.trim()) {
-    return alert("请输入议程标题")
-  }
+  if (!newMeeting.agenda.title.trim()) return ElMessage.warning("请输入议程标题")
+
   venues.value.push({ ...newMeeting.venue })
   saveToLocalStorage()
   const formattedFlows = newMeeting.agenda.flows.map(step => ({
@@ -1128,18 +1064,24 @@ const handleCreateMeeting = () => {
     flows: formattedFlows
   })
   createDialogVisible.value = false
-  alert("会议流程创建成功，分享ID：" + newMeeting.venue.shareId)
+  ElMessage.success(`会议流程创建成功，分享ID：${newMeeting.venue.shareId}`)
 }
 
-// 删除议程
+// 议程编辑与删除相关函数
 const deleteAgenda = (agendaId) => {
-  if (!confirm('确定删除该议程？关联的所有流程步骤也会被删除')) return
-  agendaStore.agendaList = agendaStore.agendaList.filter(a => a.id === agendaId)
-  localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
-  alert('议程已删除')
+  ElMessageBox.confirm(
+    '确定删除该议程？关联的所有流程步骤也会被删除',
+    '删除提示',
+    { type: 'warning' }
+  ).then(() => {
+    agendaStore.agendaList = agendaStore.agendaList.filter(a => a.id !== agendaId)
+    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
+    ElMessage.success('议程已删除')
+  }).catch(() => {
+    ElMessage.info('已取消删除')
+  })
 }
 
-// 编辑流程方法
 const openEditFlowDialog = (agenda) => {
   currentEditAgenda.id = agenda.id
   currentEditAgenda.title = agenda.title
@@ -1158,16 +1100,20 @@ const addNewEditFlowStep = () => {
 }
 
 const deleteEditFlowStep = (index) => {
-  if (confirm('确定要删除该流程步骤吗？删除后不可恢复')) {
+  ElMessageBox.confirm(
+    '确定要删除该流程步骤吗？删除后不可恢复',
+    '删除提示',
+    { type: 'warning' }
+  ).then(() => {
     currentEditAgenda.flows.splice(index, 1)
-  }
+  }).catch(() => {
+    ElMessage.info('已取消删除')
+  })
 }
 
 const handleSaveEditFlow = () => {
-  if (!currentEditAgenda.id) {
-    alert('议程ID异常，无法保存流程')
-    return
-  }
+  if (!currentEditAgenda.id) return ElMessage.error('议程ID异常，无法保存流程')
+
   const formattedFlows = currentEditAgenda.flows.map(step => ({
     ...step,
     time: step.time ? step.time.replace('T', ' ') : ''
@@ -1179,10 +1125,10 @@ const handleSaveEditFlow = () => {
     localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
   }
   editFlowDialogVisible.value = false
-  alert('议程流程保存成功')
+  ElMessage.success('议程流程保存成功')
 }
 
-// 加入会场
+// 加入/退出会场相关函数
 const openJoinVenueDialog = () => {
   joinVenueForm.shareId = ''
   joinVenueDialogVisible.value = true
@@ -1190,69 +1136,74 @@ const openJoinVenueDialog = () => {
 
 const handleJoinVenue = () => {
   const shareId = joinVenueForm.shareId.trim()
-  if (!shareId || shareId.length !== 6) {
-    alert('请输入有效的6位分享ID')
-    return
-  }
+  if (!shareId || shareId.length !== 6) return ElMessage.warning('请输入有效的6位分享ID')
+
   const targetVenue = venues.value.find(v => v.shareId === shareId)
-  if (!targetVenue) {
-    alert('未找到该会场，请检查分享ID是否正确')
-    return
-  }
+  if (!targetVenue) return ElMessage.error('未找到该会场，请检查分享ID是否正确')
+
   const isAlreadyJoined = joinedVenues.value.some(v => v.id === targetVenue.id)
   if (isAlreadyJoined) {
-    alert('你已加入该会场，无需重复加入')
+    ElMessage.info('你已加入该会场，无需重复加入')
     joinVenueDialogVisible.value = false
     return
   }
+
   joinedVenues.value.push(JSON.parse(JSON.stringify(targetVenue)))
   saveToLocalStorage()
   joinVenueDialogVisible.value = false
-  alert(`成功加入会场：${targetVenue.name}（已自动同步该会场的议程）`)
+  ElMessage.success(`成功加入会场：${targetVenue.name}（已自动同步该会场的议程）`)
 }
 
-// 退出会场
 const quitVenue = (venueId) => {
-  if (!confirm('确定退出该会场？退出后将无法查看其关联议程')) return
-  joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
-  saveToLocalStorage()
-  alert('已成功退出该会场')
-}
-
-// 点击分享ID自动复制
-const copyShareId = (shareId) => {
-  navigator.clipboard.writeText(shareId).then(() => {
-    copyToastVisible.value = true
-    setTimeout(() => {
-      copyToastVisible.value = false
-    }, 1500)
+  ElMessageBox.confirm(
+    '确定退出该会场？退出后将无法查看其关联议程',
+    '退出提示',
+    { type: 'warning' }
+  ).then(() => {
+    joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
+    saveToLocalStorage()
+    ElMessage.success('已成功退出该会场')
   }).catch(() => {
-    alert('复制失败，请手动复制')
+    ElMessage.info('已取消退出')
   })
 }
 
-// 初始化数据
+// 复制分享ID函数
+const copyShareId = (shareId) => {
+  navigator.clipboard.writeText(shareId).then(() => {
+    copyToastVisible.value = true
+    setTimeout(() => copyToastVisible.value = false, 1500)
+  }).catch(() => {
+    ElMessage.error('复制失败，请手动复制')
+  })
+}
+
+// 页面初始化
 onMounted(() => {
-  const savedName = localStorage.getItem('userName')
-  const savedAvatar = localStorage.getItem('userAvatar')
+  // 初始化用户信息（从本地存储加载到 Pinia）
+  userStore.initUserInfo()
+
+  // 加载本地存储数据
   const savedBanner = localStorage.getItem('meetingBannerUrl')
   const savedJoinedVenues = localStorage.getItem('joinedVenues')
-  if (savedName) userName.value = savedName
-  if (savedAvatar) userAvatar.value = savedAvatar
   if (savedBanner) bannerImageUrl.value = savedBanner
   if (savedJoinedVenues) joinedVenues.value = JSON.parse(savedJoinedVenues)
   agendaStore.loadAgendaFromLocalStorage()
-  watch([venues, joinedVenues, bannerImageUrl], () => {
-    saveToLocalStorage()
-  }, { deep: true })
+
+  // 监听数据变化，自动保存本地存储
+  watch([venues, joinedVenues, bannerImageUrl], () => saveToLocalStorage(), { deep: true })
   watch(() => agendaStore.agendaList, () => {
     localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
+  }, { deep: true })
+
+  // 监听用户信息变化，打印日志（方便调试头像问题）
+  watch(() => [userStore.userInfo.avatar, userStore.userInfo.username], () => {
+    console.log('用户信息更新 - 头像地址：', userStore.userInfo.avatar)
   }, { deep: true })
 })
 </script>
 
 <style scoped>
-/* 页面基础 */
 .mine-view {
   min-height: 100vh;
   background-color: #f5f5f5;
@@ -1265,7 +1216,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-/* 通用卡片 */
 .card-common {
   background-color: #ffffff;
   border-radius: 8px;
@@ -1286,7 +1236,6 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-/* 个人信息卡片 */
 .user-info {
   display: flex;
   align-items: center;
@@ -1301,16 +1250,16 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #1989fa;
-  font-size: 24px;
   overflow: hidden;
   cursor: pointer;
 }
 
+/* 头像样式优化：圆形显示、不变形 */
 .avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
 }
 
 .user-detail {
@@ -1336,7 +1285,6 @@ onMounted(() => {
   margin-top: 2px;
 }
 
-/* 功能入口 */
 .function-item {
   display: flex;
   align-items: center;
@@ -1354,6 +1302,10 @@ onMounted(() => {
   background-color: #f5fafe;
 }
 
+.function-item[style*="color: #ff4d4f;"]:hover {
+  background-color: #fff2f2;
+}
+
 .function-icon {
   margin-right: 12px;
 }
@@ -1369,7 +1321,6 @@ onMounted(() => {
   color: #c8c9cc;
 }
 
-/* 空数据提示 */
 .empty-tip {
   font-size: 14px;
   color: #999;
@@ -1380,7 +1331,6 @@ onMounted(() => {
   margin: 10px 0;
 }
 
-/* 按钮组样式 */
 .btn-group {
   display: flex;
   gap: 10px;
@@ -1388,7 +1338,6 @@ onMounted(() => {
   margin: 12px 0;
 }
 
-/* 创建按钮通用样式 */
 .create-btn {
   background-color: #1989fa;
   color: #fff;
@@ -1425,7 +1374,6 @@ onMounted(() => {
   opacity: 0.9;
 }
 
-/* 会场列表样式 */
 .venue-item {
   padding: 12px 0;
   border-bottom: 1px solid #f0f0f0;
@@ -1476,7 +1424,6 @@ onMounted(() => {
   vertical-align: middle;
 }
 
-/* 会议详情 + 操作按钮 */
 .venue-detail-row {
   display: flex;
   justify-content: space-between;
@@ -1499,7 +1446,6 @@ onMounted(() => {
   margin-bottom: 0;
 }
 
-/* 操作按钮 */
 .venue-actions-left {
   display: flex;
   gap: 8px;
@@ -1507,7 +1453,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* 分享ID样式（点击复制） */
 .share-id-row {
   display: flex;
   align-items: center;
@@ -1546,7 +1491,6 @@ onMounted(() => {
   margin-top: 4px;
 }
 
-/* 议程列表样式 */
 .agenda-list {
   margin-top: 10px;
 }
@@ -1592,7 +1536,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* 操作按钮通用样式 */
 .btn-danger {
   background-color: #ff4d4f;
   color: #ffffff;
@@ -1634,7 +1577,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* 弹窗基础样式 */
 .dialog-mask {
   position: fixed;
   top: 0;
@@ -1719,23 +1661,22 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 14px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: opacity 0.2s ease;
 }
 
 .dialog-cancel-btn:hover {
-  background-color: #e8e8e8;
+  opacity: 0.9;
 }
 
-/* 表单通用样式 */
 .form-item {
   margin-bottom: 16px;
 }
 
 .form-label {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 4px;
   display: block;
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 6px;
   font-weight: 500;
 }
 
@@ -1744,77 +1685,58 @@ onMounted(() => {
   padding: 8px 10px;
   border: 1px solid #e5e5e5;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
   box-sizing: border-box;
-  transition: border-color 0.2s ease;
 }
 
 .form-input:focus {
-  border-color: #1989fa;
   outline: none;
+  border-color: #1989fa;
 }
 
 .color-input {
   height: 40px;
-  padding: 2px;
-  cursor: pointer;
+  padding: 0;
 }
 
-.file-input {
-  width: 100%;
-  padding: 8px;
-  font-size: 13px;
-  color: #666;
-}
-
-/* 流程编辑区域样式 */
 .flow-form-item {
-  margin-bottom: 20px;
-  margin-top: 15px;
+  margin-bottom: 16px;
 }
 
 .flow-add-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  background-color: #f5f5fafe;
-  border: 1px dashed #1989fa;
-  border-radius: 4px;
   color: #1989fa;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin-bottom: 12px;
-}
-
-.flow-add-btn:hover {
-  background-color: #e6f7ff;
+  padding: 8px 0;
 }
 
 .flow-step-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  margin-top: 12px;
 }
 
 .flow-step-item {
-  padding: 12px;
   background-color: #fafafa;
   border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
 }
 
 .step-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .step-num {
-  font-size: 13px;
-  font-weight: bold;
+  font-size: 12px;
   color: #1989fa;
+  font-weight: 500;
 }
 
 .step-del-btn {
@@ -1822,12 +1744,6 @@ onMounted(() => {
   border: none;
   cursor: pointer;
   padding: 2px;
-  border-radius: 2px;
-  transition: background-color 0.2s ease;
-}
-
-.step-del-btn:hover {
-  background-color: #ffebeb;
 }
 
 .step-form-content {
@@ -1841,104 +1757,42 @@ onMounted(() => {
 }
 
 .step-form-label {
-  font-size: 13px;
-  color: #333;
-  margin-bottom: 3px;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
 }
 
 .step-input {
-  font-size: 13px;
+  font-size: 12px;
   padding: 6px 8px;
 }
 
 .step-textarea {
-  font-size: 13px;
+  font-size: 12px;
   padding: 6px 8px;
   resize: vertical;
   min-height: 60px;
 }
 
-/* 头像编辑样式 */
-.user-edit-content {
-  padding: 10px 0;
-}
-
-.edit-item {
-  margin-bottom: 16px;
-}
-
-.edit-label {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 8px;
-  display: block;
-}
-
-.avatar-upload {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.preview-avatar {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background-color: #f5fafe;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-
-.preview-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-uploader {
-  display: inline-block;
-}
-
-.upload-btn {
-  font-size: 12px;
-  padding: 4px 12px;
-}
-
-.upload-tip {
-  font-size: 11px;
-  color: #999;
-  margin-top: 4px;
-}
-
-.name-input {
-  margin-top: 4px;
-}
-
-/* 宣传图预览样式 */
 .banner-preview {
-  width: 100%;
   margin-bottom: 16px;
-  border-radius: 6px;
-  overflow: hidden;
-  background-color: #f5f5f5;
+  text-align: center;
 }
 
 .banner-preview .preview-img {
-  width: 100%;
-  height: auto;
+  max-width: 100%;
   max-height: 200px;
-  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
 }
 
-/* 加入的会场及议程容器 */
-.joined-content {
-  margin-top: 10px;
+.file-input {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  color: #666;
 }
 
-/* 复制成功提示 */
 .toast-mask {
   position: fixed;
   top: 50%;
@@ -1951,7 +1805,7 @@ onMounted(() => {
 }
 
 .toast-content {
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: rgba(0, 0, 0, 0.7);
   color: #ffffff;
   padding: 10px 20px;
   border-radius: 4px;
@@ -1960,9 +1814,13 @@ onMounted(() => {
 }
 
 @keyframes fadeInOut {
-  0% { opacity: 0; transform: translateY(-20px); }
-  20% { opacity: 1; transform: translateY(0); }
-  80% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-20px); }
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.joined-content {
+  margin-top: 10px;
 }
 </style>
