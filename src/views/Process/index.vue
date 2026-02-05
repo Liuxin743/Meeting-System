@@ -170,7 +170,6 @@ import { ref, onMounted, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useAgendaStore } from '../../stores/agendaStore';
 import { useScheduleStore } from '../../stores/scheduleStore';
-// 1. 导入后端 API 封装（核心修改）
 import { meetingApi, venueApi, agendaApi, collectApi } from '../../api/index'; // 替换为你的 api 实际路径
 
 // 初始化仓库

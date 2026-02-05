@@ -107,3 +107,14 @@ export const collectApi = {
     params: { agendaId, stepIndex }
   })
 };
+
+
+export default {
+  agendaApi,
+  meetingApi,
+  noticeApi,
+  receiptApi,
+  userApi,
+  venueApi,
+  collectApi
+};
