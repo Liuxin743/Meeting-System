@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router' // 核心修改：替换为 createWebHashHistory
 import { ElMessage } from 'element-plus' 
 
 import Home from '../views/Home/index.vue'
@@ -183,7 +183,8 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(), 
+  // 核心修改：使用 createWebHashHistory 替代 createWebHistory，无需传参
+  history: createWebHashHistory(), 
   routes,
   // 路由跳转时滚动到顶部（优化体验）
   scrollBehavior() {
