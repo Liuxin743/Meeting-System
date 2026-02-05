@@ -1,25 +1,65 @@
-import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import axios from 'axios';
 
-const request = axios.create({
-  baseURL: 'http://localhost:3000/api', 
-  timeout: 5000,
+// 基础地址配置
+let baseUrl = 'http://47.110.88.34:8889/api';
+
+if (process.env.NODE_ENV === 'production') {
+  baseUrl = '/api'; 
+}
+
+// 创建 axios 实例
+const service = axios.create({
+  baseURL: baseUrl,
+  timeout: 10000, // 请求超时时间
   headers: {
-    'Content-Type': 'application/json;charset=utf-8'
+    'Content-Type': 'application/json'
   }
-})
+});
 
-// 响应拦截器（匹配后端返回格式）
-request.interceptors.response.use(
-  (res) => {
-    // 直接返回后端的完整响应数据，方便页面判断 code
-    return res.data;
+// 请求拦截器：携带 Token
+service.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
   },
-  (err) => {
-    const errorMsg = err.response?.data?.msg || '请求失败，请稍后重试'
-    ElMessage.error(errorMsg)
-    return Promise.reject(err)
+  (error) => {
+    console.error('请求拦截器错误：', error);
+    return Promise.reject(error);
   }
-)
+);
 
-export default request
+// 响应拦截器
+service.interceptors.response.use(
+  (response) => {
+    const res = response.data;
+    if (response.status >= 200 && response.status < 300) {
+      return res;
+    } else {
+      // 提示错误信息
+      alert(res.message || '请求失败');
+      return Promise.reject(res);
+    }
+  },
+  (error) => {
+    // 统一处理错误
+    if (error.response) {
+      const status = error.response.status;
+      const res = error.response.data;
+      if (status === 401) {
+        alert(res.message || '请先登录');
+        // router.push('/login');
+      } else {
+        alert(res.message || '请求失败');
+      }
+    } else {
+      alert('网络请求失败，请检查网络连接');
+    }
+    console.error('响应拦截器错误：', error);
+    return Promise.reject(error);
+  }
+);
+
+export default service;

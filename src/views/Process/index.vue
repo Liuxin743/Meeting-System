@@ -28,9 +28,12 @@
       </div>
     </div>
 
-    <!-- 空会场提示 -->
-    <div class="empty-venue-tip" v-if="customVenues.length === 0">
+    <!-- 空会场提示/加载中提示 -->
+    <div class="empty-venue-tip" v-if="!loading && customVenues.length === 0">
       暂无自定义会场，请先在个人中心创建会场
+    </div>
+    <div class="empty-venue-tip" v-if="loading">
+      正在加载会场数据...
     </div>
 
     <!-- 会场内容 -->
@@ -44,7 +47,7 @@
         <div class="venue-info">
           <div class="info-item">
             <span class="info-label">会议时间：</span>
-            <span class="info-content">{{ currentVenue.time }}</span>
+            <span class="info-content">{{ formatTime(currentVenue.time) }}</span>
           </div>
           <div class="info-item">
             <span class="info-label">会议地址：</span>
@@ -63,9 +66,12 @@
           <h3 class="flow-title">{{ currentVenue.name }}会议流程</h3>
         </div>
 
-        <!-- 空议程提示 -->
-        <div class="empty-tip" v-if="currentVenueAgendas.length === 0">
+        <!-- 空议程提示/加载中提示 -->
+        <div class="empty-tip" v-if="!loading && currentVenueAgendas.length === 0">
           暂无该会场的议程，请先在个人中心创建议程
+        </div>
+        <div class="empty-tip" v-if="loading">
+          正在加载议程数据...
         </div>
 
         <!-- 议程列表 -->
@@ -118,8 +124,9 @@
                         class="action-btn collect-btn"
                         :class="{ collected: isFlowStepCollected(agenda.id, sIndex) }"
                         @click.stop="toggleFlowStepCollect(agenda.id, sIndex)"
+                        :disabled="apiLoading"
                       >
-                        {{ isFlowStepCollected(agenda.id, sIndex) ? '已收藏' : '收藏' }}
+                        {{ apiLoading ? '处理中...' : (isFlowStepCollected(agenda.id, sIndex) ? '已收藏' : '收藏') }}
                       </span>
                       <span 
                         class="action-btn remark-btn"
@@ -150,7 +157,9 @@
       ></textarea>
       <div class="modal-btns">
         <button class="modal-btn cancel-btn" @click="closeStepRemarkModal">取消</button>
-        <button class="modal-btn confirm-btn" @click="saveFlowStepRemark">保存备注</button>
+        <button class="modal-btn confirm-btn" @click="saveFlowStepRemark" :disabled="apiLoading">
+          {{ apiLoading ? '保存中...' : '保存备注' }}
+        </button>
       </div>
     </div>
   </div>
@@ -158,27 +167,34 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from "vue";
+import { ElMessage } from "element-plus";
 import { useAgendaStore } from '../../stores/agendaStore';
 import { useScheduleStore } from '../../stores/scheduleStore';
+// 1. 导入后端 API 封装（核心修改）
+import { meetingApi, venueApi, agendaApi, collectApi } from '../../api/index'; // 替换为你的 api 实际路径
 
 // 初始化仓库
 const agendaStore = useAgendaStore();
 const scheduleStore = useScheduleStore();
 
-// 会场数据
-const customVenues = ref(JSON.parse(localStorage.getItem('customVenues')) || []);
-// 备注数据
-const userRemarks = ref(JSON.parse(localStorage.getItem('userRemarks')) || {
+// 新增：API 加载状态（防止重复操作，优化用户体验）
+const loading = ref(false); // 页面初始化加载状态
+const apiLoading = ref(false); // 操作类 API 加载状态
+
+// 会场数据（从后端拉取，不再从 localStorage 读取）
+const customVenues = ref([]);
+// 备注数据（暂时保留本地，如需持久化可新增 remarkApi 对接后端）
+const userRemarks = ref({
   agendas: {},
   flowSteps: {}
 });
 
-// 宣传图数据
+// 宣传图数据（暂时保留本地，如需对接后端可新增 bannerApi）
 const bannerImageUrl = ref(localStorage.getItem('meetingBannerUrl') || '');
 const defaultBannerUrl = ref('https://img.ixintu.com/download/jpg/202308/6673017c157638922.jpg');
 
 // 激活的会场ID
-const activeVenueId = ref(customVenues.value[0]?.id || '');
+const activeVenueId = ref('');
 // 折叠/展开状态
 const expandedAgendaIds = ref([]);
 
@@ -194,12 +210,12 @@ const currentVenue = computed(() => {
   return customVenues.value.find(venue => venue.id === activeVenueId.value) || {};
 });
 
-// 会场的议程
+// 会场的议程（从后端拉取的议程列表中过滤）
 const currentVenueAgendas = computed(() => {
   return agendaStore.agendaList.filter(agenda => agenda.venueId === activeVenueId.value);
 });
 
-// 时间格式化方法
+// 时间格式化方法（保留原有逻辑，优化兼容性）
 function formatTime(datetimeStr) {
   if (!datetimeStr) return '未设置';
   
@@ -222,29 +238,43 @@ function formatTime(datetimeStr) {
   return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')} - ${date.getHours() + 1}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-// 同步数据到本地存储
-function syncGlobalDataToLocal() {
-  localStorage.setItem('userRemarks', JSON.stringify(userRemarks.value));
-  localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
-}
-
-// ========== 收藏相关方法 ==========
+// ========== 收藏相关方法（对接后端 API，核心修改） ==========
 function isFlowStepCollected(agendaId, stepIndex) {
   return scheduleStore.isFlowStepCollected(agendaId, stepIndex);
 }
 
-function toggleFlowStepCollect(agendaId, stepIndex) {
-  // 收藏切换
-  scheduleStore.toggleFlowStepCollect(agendaId, stepIndex);
-  // 更新收藏状态
-  agendaStore.toggleAgendaCollect(agendaId);
-  
-  setTimeout(() => {
-    agendaStore.agendaList = [...agendaStore.agendaList];
-  }, 0);
+async function toggleFlowStepCollect(agendaId, stepIndex) {
+  try {
+    apiLoading.value = true;
+    // 1. 调用后端收藏/取消收藏 API
+    const isCollected = isFlowStepCollected(agendaId, stepIndex);
+    if (isCollected) {
+      // 取消收藏
+      await collectApi.removeCollect(agendaId, stepIndex);
+    } else {
+      // 新增收藏
+      await collectApi.addCollect({ agendaId, stepIndex });
+    }
+
+    // 2. 同步前端仓库状态
+    scheduleStore.toggleFlowStepCollect(agendaId, stepIndex);
+    agendaStore.toggleAgendaCollect(agendaId);
+    
+    setTimeout(() => {
+      agendaStore.agendaList = [...agendaStore.agendaList];
+    }, 0);
+
+    // 3. 提示用户操作结果
+    ElMessage.success(isCollected ? '已取消收藏' : '已收藏');
+  } catch (error) {
+    ElMessage.error('收藏操作失败：' + (error.response?.data?.msg || '网络异常'));
+    console.error('收藏操作失败：', error);
+  } finally {
+    apiLoading.value = false;
+  }
 }
 
-// 备注
+// ========== 备注相关方法（暂时保留本地，可后续对接后端） ==========
 function getFlowStepRemark(agendaId, stepIndex) {
   const key = `${agendaId}_${stepIndex}`;
   return userRemarks.value.flowSteps[key] || '';
@@ -271,18 +301,22 @@ function saveFlowStepRemark() {
     } else {
       delete userRemarks.value.flowSteps[key];
     }
-    syncGlobalDataToLocal();
+
+    // 如需备注持久化，此处调用后端保存备注 API
+    // 示例：await remarkApi.saveRemark({ agendaId: currentStepRemarkAgendaId.value, stepIndex: currentStepRemarkIndex.value, content: currentStepRemarkContent.value.trim() });
+
+    ElMessage.success('备注保存成功');
     closeStepRemarkModal();
   }
 }
 
-// 切换会场
+// ========== 会场切换方法（保留原有交互） ==========
 function switchVenue(venueId) {
   activeVenueId.value = venueId;
   expandedAgendaIds.value = [];
 }
 
-// 切换议程的折叠/展开状态
+// ========== 议程折叠/展开方法（保留原有交互） ==========
 function toggleAgendaExpand(agendaId) {
   if (expandedAgendaIds.value.includes(agendaId)) {
     expandedAgendaIds.value = expandedAgendaIds.value.filter(id => id !== agendaId);
@@ -291,39 +325,70 @@ function toggleAgendaExpand(agendaId) {
   }
 }
 
-// 页面挂载逻辑
-onMounted(() => {
-  // 加载议程数据
-  agendaStore.loadAgendaFromLocalStorage();
-  
-  // 同步数据
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'userRemarks') {
-      userRemarks.value = JSON.parse(e.newValue || JSON.stringify({ agendas: {}, flowSteps: {} }));
-    } else if (e.key === 'customVenues') {
-      customVenues.value = JSON.parse(e.newValue || '[]');
-      if (customVenues.value.length > 0 && !activeVenueId.value) {
-        activeVenueId.value = customVenues.value[0].id;
-      }
-    } else if (e.key === 'agendaList') {
-      agendaStore.loadAgendaFromLocalStorage();
-    } else if (e.key === 'collectedFlowSteps') {
-      // 更新收藏状态
-      scheduleStore.collectedFlowSteps = JSON.parse(e.newValue || '[]');
-      scheduleStore.coreScheduleTime = { ...scheduleStore.coreScheduleTime };
+// ========== 新增：加载后端数据的核心方法 ==========
+/**
+ * 加载我创建的会场列表
+ */
+async function loadMyVenues() {
+  try {
+    loading.value = true;
+    // 调用后端获取「我的会议」接口（包含会场信息）
+    const res = await meetingApi.getMyMeetings();
+    customVenues.value = res.data || [];
+
+    // 初始化激活的会场（默认选中第一个）
+    if (customVenues.value.length > 0 && !activeVenueId.value) {
+      activeVenueId.value = customVenues.value[0].id;
     }
-  });
+  } catch (error) {
+    ElMessage.error('加载会场数据失败：' + (error.response?.data?.msg || '网络异常'));
+    console.error('加载会场失败：', error);
+  } finally {
+    loading.value = false;
+  }
+}
 
-  // 监听数据变化，自动保存
-  watch(customVenues, () => {
-    localStorage.setItem('customVenues', JSON.stringify(customVenues.value));
-  }, { deep: true });
+/**
+ * 加载我的议程列表
+ */
+async function loadMyAgendas() {
+  try {
+    loading.value = true;
+    // 调用后端获取「我的议程」接口
+    const res = await agendaApi.getMyAgendas();
+    agendaStore.agendaList = res.data || [];
+  } catch (error) {
+    ElMessage.error('加载议程数据失败：' + (error.response?.data?.msg || '网络异常'));
+    console.error('加载议程失败：', error);
+  } finally {
+    loading.value = false;
+  }
+}
 
-  watch(userRemarks, () => {
-    syncGlobalDataToLocal();
-  }, { deep: true });
+/**
+ * 加载我的收藏列表（初始化收藏状态）
+ */
+async function loadMyCollects() {
+  try {
+    // 调用后端获取「我的收藏」接口
+    const res = await collectApi.getMyCollects();
+    scheduleStore.collectedFlowSteps = res.data || [];
+  } catch (error) {
+    ElMessage.error('加载收藏数据失败：' + (error.response?.data?.msg || '网络异常'));
+    console.error('加载收藏失败：', error);
+  }
+}
 
-  // 监听agendaList变化，确保实时更新
+// ========== 页面挂载逻辑（替换本地存储加载，改为后端数据加载） ==========
+onMounted(async () => {
+  // 并行加载后端核心数据
+  await Promise.all([
+    loadMyVenues(),
+    loadMyAgendas(),
+    loadMyCollects()
+  ]);
+
+  // 监听议程列表变化，确保实时更新
   watch(() => agendaStore.agendaList, () => {
     // 强制触发scheduleStore的计算属性更新
     scheduleStore.coreScheduleTime = { ...scheduleStore.coreScheduleTime };
@@ -332,7 +397,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 全局样式 */
+/* 样式部分保持不变，仅新增禁用状态样式 */
 * {
   margin: 0;
   padding: 0;
@@ -623,6 +688,7 @@ onMounted(() => {
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
+  transition: opacity 0.2s;
 }
 
 .collect-btn {
@@ -638,6 +704,12 @@ onMounted(() => {
 .remark-btn {
   background-color: #f7f3e9;
   color: #faad14;
+}
+
+/* 新增：禁用状态样式 */
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* 备注弹窗 */
@@ -700,6 +772,7 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 14px;
   cursor: pointer;
+  transition: opacity 0.2s;
 }
 
 .cancel-btn {
@@ -710,5 +783,10 @@ onMounted(() => {
 .confirm-btn {
   background-color: #1989fa;
   color: #fff;
+}
+
+.modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

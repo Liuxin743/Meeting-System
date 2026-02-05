@@ -72,20 +72,19 @@
       <button 
         class="confirm-btn" 
         @click="handleChangePwd"
-        :disabled="!pwdForm.oldPwd || !pwdForm.newPwd || !pwdForm.confirmPwd"
+        :disabled="!isFormValid || loading"
       >
-        确认修改
+        {{ loading ? '处理中...' : '确认修改' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus' // 补全导入
-import userApi from "@/api/userApi"; // 只去掉大括号，没有 * as
-
+import { ElMessage } from 'element-plus'
+import userApi from "@/api/userApi";
 const router = useRouter()
 
 // 表单数据
@@ -100,44 +99,75 @@ const oldPwdVisible = ref(false)
 const newPwdVisible = ref(false)
 const confirmPwdVisible = ref(false)
 
+// 3. 新增：加载状态（防止重复提交，核心修改）
+const loading = ref(false)
+
+// 4. 新增：表单有效性计算属性（简化按钮禁用逻辑，更优雅）
+const isFormValid = computed(() => {
+  return !!pwdForm.oldPwd.trim() && !!pwdForm.newPwd.trim() && !!pwdForm.confirmPwd.trim()
+})
+
 const goBack = () => {
   router.back()
 }
 
-// 提交修改密码
+// 提交修改密码（完善后端对接，优化校验和错误处理）
 const handleChangePwd = async () => {
+  // 第一步：前端校验（补充完善，提升用户体验）
+  // 校验旧密码长度
+  if (pwdForm.oldPwd.length < 6 || pwdForm.oldPwd.length > 20) {
+    ElMessage.warning('旧密码长度应为6-20位')
+    return
+  }
+
+  // 校验新密码长度
+  if (pwdForm.newPwd.length < 6 || pwdForm.newPwd.length > 20) {
+    ElMessage.warning('新密码长度应为6-20位')
+    return
+  }
+
   // 校验新密码和确认密码是否一致
   if (pwdForm.newPwd !== pwdForm.confirmPwd) {
     ElMessage.warning('两次输入的新密码不一致')
     return
   }
 
-  // 校验新密码长度
-  if (pwdForm.newPwd.length < 6 || pwdForm.newPwd.length > 20) {
-    ElMessage.warning('密码长度应为6-20位')
+  // 校验新密码是否和旧密码一致（可选，提升体验）
+  if (pwdForm.oldPwd === pwdForm.newPwd) {
+    ElMessage.warning('新密码不能与旧密码一致')
     return
   }
 
   try {
-    // 调用后端修改密码接口
+    // 第二步：设置加载状态，禁用按钮
+    loading.value = true
+
+    // 第三步：调用后端修改密码接口（参数对应你封装的 userApi.changePassword）
+    // 注意：参数字段与你后端 API 保持一致（oldPassword/newPassword）
     await userApi.changePassword({
-      oldPassword: pwdForm.oldPwd,
-      newPassword: pwdForm.newPwd
+      oldPassword: pwdForm.oldPwd.trim(),
+      newPassword: pwdForm.newPwd.trim()
     })
     
+    // 第四步：操作成功处理
     ElMessage.success('密码修改成功，请重新登录')
-    // 清除本地存储（强制重新登录）
+    
+    // 清除本地存储（强制重新登录，保证安全性）
     localStorage.removeItem('token')
     localStorage.removeItem('userInfo')
     
-    // 跳转到登录页
+    // 延迟跳转登录页，让用户看到成功提示
     setTimeout(() => {
-      router.push('/login')
+      router.push({ path: '/login', replace: true }) // 新增 replace: true，避免回退到修改密码页
     }, 1500)
   } catch (err) {
-    // 优化：捕获具体错误信息
-    const errMsg = err.response?.data?.message || '密码修改失败，旧密码可能不正确'
+    // 第五步：优化错误处理（适配后端返回的 msg 字段，核心修改）
+    const errMsg = err.response?.data?.msg || err.response?.data?.message || '密码修改失败，旧密码可能不正确'
     ElMessage.error(errMsg)
+    console.error('修改密码接口报错：', err)
+  } finally {
+    // 第六步：无论成功失败，都关闭加载状态
+    loading.value = false
   }
 }
 </script>
@@ -145,7 +175,7 @@ const handleChangePwd = async () => {
 <style scoped>
 .change-pwd-container {
   min-height: 100vh;
-  background-color: #ffffff; /* 改为全白背景 */
+  background-color: #ffffff;
   padding: 20px;
   position: relative;
   max-width: 600px;

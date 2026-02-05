@@ -3,7 +3,7 @@
     <div class="profile-card">
       <!-- 返回箭头 -->
       <div class="back-btn" @click="goBack">
-        <el-icon><arrow-left /></el-icon>
+        <el-icon><ArrowLeft /></el-icon>
       </div>
 
       <h2 class="profile-title">个人信息管理</h2>
@@ -18,24 +18,27 @@
               :src="userForm.avatar"
               alt="用户头像"
               class="avatar-img"
+              loading="lazy"
             />
             <el-icon v-else class="default-avatar"><User /></el-icon>
           </div>
           <div class="avatar-upload-btn">
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/gif"
               @change="handleAvatarUpload"
               class="avatar-file-input"
               id="avatar-upload"
+              :disabled="saveLoading"
             />
-            <label for="avatar-upload" class="upload-btn">
+            <label for="avatar-upload" class="upload-btn" :class="{ disabled: saveLoading }">
               <el-icon><Upload /></el-icon> 上传头像
             </label>
             <button
               v-if="userForm.avatar"
               class="reset-avatar-btn"
               @click="resetAvatar"
+              :disabled="saveLoading"
             >
               重置头像
             </button>
@@ -52,6 +55,7 @@
           class="form-input"
           placeholder="请输入用户名"
           maxlength="20"
+          :disabled="saveLoading"
         />
       </div>
 
@@ -80,26 +84,25 @@
       </div>
 
       <div class="btn-group">
-        <button class="save-btn" @click="saveUserInfo">保存修改</button>
+        <button class="save-btn" @click="saveUserInfo" :disabled="saveLoading || !userForm.username.trim()">
+          {{ saveLoading ? '保存中...' : '保存修改' }}
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowLeft, User, Upload } from "@element-plus/icons-vue";
-import userApi from "@/api/userApi"; // 只去掉大括号，没有 * as
-// 1. 导入 Pinia 用户仓库
+import userApi from "@/api/index"; 
 import { useUserStore } from "@/stores/userStore";
 
 const router = useRouter();
-// 2. 实例化 Pinia 用户仓库
 const userStore = useUserStore();
 
-// 表单数据（仅用于前端展示和普通数据提交）
+// 表单数据
 const userForm = reactive({
   id: "",
   username: "",
@@ -107,154 +110,155 @@ const userForm = reactive({
   avatar: "",
 });
 
-// 原始头像文件对象（传给后端的核心数据，不存储 base64）
+// 核心状态变量
 const avatarFile = ref(null);
+const saveLoading = ref(false);
+let fileReader = null;
 
-// 校验头像地址是否有效（和 Mine 页保持一致，避免格式不匹配）
+// 校验头像地址
 const isValidAvatarUrl = (url) => {
   if (!url || typeof url !== 'string') return false;
   return url.startsWith('http') || url.startsWith('data:image/');
 };
 
+// 页面挂载：获取个人信息
 onMounted(async () => {
   try {
-    // 修复点：从 Pinia 中获取当前登录用户的 username，传递给后端
+    // 构建请求参数
     const postData = {
-      username: userStore.userInfo.username || 'test12345' // 兜底默认值，和后端对应
+      username: userStore.userInfo?.username || 'test12345'
     };
-    // 传递参数给 getProfile 接口
+    // 调用修复后的getProfile接口
     const res = await userApi.getProfile(postData);
 
     if (res && res.code === 200 && res.data) {
-      // 后续逻辑不变（省略）
       const validAvatar = isValidAvatarUrl(res.data.avatar) 
         ? res.data.avatar 
-        : userStore.userInfo.avatar || userForm.avatar;
+        : (userStore.userInfo?.avatar || "");
 
+      // 赋值表单数据
       userForm.id = res.data.id || "10001";
       userForm.username = res.data.username || "会议参与者";
       userForm.phone = res.data.phone || "";
-      userForm.avatar = validAvatar || "";
+      userForm.avatar = validAvatar;
 
-      userStore.updateUserInfo({
+      // 同步Pinia和本地存储
+      const updatedUserInfo = {
         id: res.data.id,
         username: res.data.username,
         phone: res.data.phone,
         avatar: validAvatar,
-      });
-
-      localStorage.setItem("userInfo", JSON.stringify({
-        id: res.data.id,
-        username: res.data.username,
-        phone: res.data.phone,
-        avatar: validAvatar,
-      }));
+      };
+      userStore.updateUserInfo(updatedUserInfo);
+      localStorage.setItem("userInfo", JSON.stringify(updatedUserInfo));
     }
-  }catch (err) {
-    // 接口失败时：优先读取 Pinia，再读取本地缓存
-    if (userStore.id) {
-      // Pinia 有数据，直接赋值
-      userForm.id = userStore.id;
-      userForm.username = userStore.username;
-      userForm.phone = userStore.phone || "";
-      userForm.avatar = userStore.avatar || "";
-    } else {
-      // Pinia 无数据，读取本地缓存
-      const savedUserInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
-      userForm.id = savedUserInfo.id || "10001";
-      userForm.username = savedUserInfo.username || "会议参与者";
-      userForm.phone = savedUserInfo.phone || "";
-      userForm.avatar = savedUserInfo.avatar || "";
+  } catch (err) {
+    // 降级处理
+    const savedUserInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
+    userForm.id = savedUserInfo.id || "10001";
+    userForm.username = savedUserInfo.username || "会议参与者";
+    userForm.phone = savedUserInfo.phone || "";
+    userForm.avatar = savedUserInfo.avatar || "";
 
-      // 同步到 Pinia 全局状态
-      userStore.updateUserInfo(savedUserInfo);
-    }
-    ElMessage.warning("获取个人信息失败，使用缓存数据");
+    userStore.updateUserInfo(savedUserInfo);
+    ElMessage.warning("获取个人信息失败，使用本地缓存数据");
   }
 });
 
-// 返回上一页（跳转到我的页面）
+// 组件销毁
+onUnmounted(() => {
+  if (fileReader && fileReader.readyState !== 2) {
+    fileReader.abort();
+  }
+  fileReader = null;
+  avatarFile.value = null;
+});
+
+// 返回我的页面
 const goBack = () => {
-  router.push("/mine");
+  if (!saveLoading.value) {
+    router.push("/mine");
+  }
 };
 
-// 处理头像上传（预览用 base64，提交用原始文件）
+// 处理头像上传
 const handleAvatarUpload = (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  // 校验文件类型
-  if (!file.type.startsWith("image/")) {
-    ElMessage.error("请上传图片格式的文件（JPG/PNG等）");
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+  if (!allowedTypes.includes(file.type)) {
+    ElMessage.error("请上传 JPG/PNG/GIF 格式的图片");
     return;
   }
 
-  // 校验文件大小（2MB）
-  if (file.size > 2 * 1024 * 1024) {
-    ElMessage.error("头像大小不能超过2MB");
+  const maxSize = 2 * 1024 * 1024;
+  if (file.size > maxSize) {
+    ElMessage.error("头像大小不能超过 2MB");
     return;
   }
 
-  // 保存原始文件对象（用于提交）
   avatarFile.value = file;
-
-  // 生成 base64 用于前端预览
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    userForm.avatar = event.target.result; // base64 格式，符合 Mine 页校验规则
+  fileReader = new FileReader();
+  fileReader.onload = (event) => {
+    const base64Url = event.target.result;
+    if (isValidAvatarUrl(base64Url)) {
+      userForm.avatar = base64Url;
+    }
   };
-  reader.readAsDataURL(file);
+  fileReader.onerror = () => {
+    ElMessage.error("图片读取失败，请重新上传");
+    avatarFile.value = null;
+  };
+  fileReader.readAsDataURL(file);
 };
 
-// 重置头像（清空所有相关存储）
+// 重置头像
 const resetAvatar = () => {
-  // 清空表单头像
+  if (saveLoading.value) return;
+
   userForm.avatar = "";
-  // 清空原始文件对象
   avatarFile.value = null;
-  // 清空文件输入框
   const fileInput = document.getElementById("avatar-upload");
   if (fileInput) fileInput.value = "";
-  // 同步清空 Pinia 和本地存储
+
   const updatedUserInfo = {
     id: userForm.id,
     username: userForm.username,
     phone: userForm.phone,
-    avatar: "", // 重置为空，显示默认图标
+    avatar: "",
   };
   userStore.updateUserInfo(updatedUserInfo);
   localStorage.setItem("userInfo", JSON.stringify(updatedUserInfo));
+
   ElMessage.info("头像已重置");
 };
 
-// 保存个人信息（核心：FormData 提交 + 同步 Pinia 全局状态）
+// 保存个人信息
 const saveUserInfo = async () => {
-  // 简单校验
-  if (!userForm.username.trim()) {
-    ElMessage.warning("请输入用户名");
+  const username = userForm.username.trim();
+  if (!username) {
+    ElMessage.warning("请输入有效的用户名");
     return;
   }
 
   try {
-    // 1. 构建 FormData 对象
+    saveLoading.value = true;
+
+    // 构建FormData
     const formDataObj = new FormData();
-
-    // 2. 追加普通数据
     formDataObj.append("id", userForm.id);
-    formDataObj.append("username", userForm.username.trim());
-
-    // 3. 追加头像文件（字段名 'avatar' 必须和后端 multer 一致）
+    formDataObj.append("username", username);
     if (avatarFile.value) {
-      formDataObj.append("avatar", avatarFile.value);
+      formDataObj.append("avatar", avatarFile.value, avatarFile.value.name);
     }
 
-    // 4. 调用后端接口
+    // 调用修复后的updateProfile接口
     const res = await userApi.updateProfile(formDataObj);
 
     if (res && res.code === 200) {
       ElMessage.success("个人信息保存成功");
 
-      // 整理更新后的用户信息，优先保留有效头像
       const backendAvatar = res.data?.avatar || "";
       const finalAvatar = isValidAvatarUrl(backendAvatar) 
         ? backendAvatar 
@@ -262,22 +266,38 @@ const saveUserInfo = async () => {
 
       const updatedUserInfo = {
         id: userForm.id,
-        username: userForm.username.trim(),
+        username: username,
         phone: userForm.phone,
-        avatar: finalAvatar, // 最终生效的有效头像
+        avatar: finalAvatar,
       };
-
-      // 5. 关键：更新 Pinia 全局状态（实现我的页面实时同步）
       userStore.updateUserInfo(updatedUserInfo);
-
-      // 6. 同步更新本地存储（持久化，防止页面刷新丢失）
       localStorage.setItem("userInfo", JSON.stringify(updatedUserInfo));
 
-      // 7. 返回我的页面
-      goBack();
+      setTimeout(() => {
+        goBack();
+      }, 1000);
+    } else {
+      ElMessage.warning("保存失败：" + (res?.data?.msg || "未知错误"));
     }
   } catch (err) {
-    ElMessage.error("保存失败：" + (err.response?.data?.msg || "服务器错误"));
+    let errMsg = "服务器错误，请稍后重试";
+    if (err.response?.status === 400) {
+      errMsg = "参数错误：" + (err.response.data.msg || "用户名或头像格式无效");
+    } else if (err.response?.status === 401) {
+      errMsg = "登录状态失效，请重新登录";
+      localStorage.removeItem("token");
+      localStorage.removeItem("userInfo");
+      userStore.clearUserInfo();
+      setTimeout(() => {
+        router.push("/login");
+      }, 1500);
+    } else if (err.response?.data?.msg) {
+      errMsg = "保存失败：" + err.response.data.msg;
+    }
+    ElMessage.error(errMsg);
+    console.error("个人信息更新报错：", err);
+  } finally {
+    saveLoading.value = false;
   }
 };
 </script>
@@ -383,7 +403,12 @@ const saveUserInfo = async () => {
   transition: background-color 0.2s;
 }
 
-.upload-btn:hover {
+.upload-btn.disabled {
+  background-color: #c8c9cc;
+  cursor: not-allowed;
+}
+
+.upload-btn:hover:not(.disabled) {
   background-color: #1677ff;
 }
 
@@ -398,7 +423,13 @@ const saveUserInfo = async () => {
   transition: background-color 0.2s;
 }
 
-.reset-avatar-btn:hover {
+.reset-avatar-btn:disabled {
+  background-color: #e8e8e8;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.reset-avatar-btn:hover:not(:disabled) {
   background-color: #e8e8e8;
 }
 
@@ -428,6 +459,11 @@ const saveUserInfo = async () => {
   border-color: #1989fa;
 }
 
+.form-input:disabled {
+  background-color: #f9fafb;
+  cursor: not-allowed;
+}
+
 .readonly-input {
   background-color: #f9fafb;
   color: #666;
@@ -453,7 +489,12 @@ const saveUserInfo = async () => {
   transition: background-color 0.2s;
 }
 
-.save-btn:hover {
+.save-btn:disabled {
+  background-color: #c8c9cc;
+  cursor: not-allowed;
+}
+
+.save-btn:hover:not(:disabled) {
   background-color: #1677ff;
 }
 </style>

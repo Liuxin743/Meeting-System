@@ -8,28 +8,48 @@
         color="#1989fa" 
         class="back-icon" 
         @click="goBack"
+        :disabled="loading"
       />
       <div class="page-title">我的备注</div>
     </div>
 
     <div class="page-content">
       <div class="remark-card card-common">
-        <div class="empty-tip" v-if="remarkAgendas.length === 0">
+        <!-- 加载中提示 -->
+        <div class="loading-tip" v-if="loading">
+          正在加载备注列表...
+        </div>
+        <!-- 错误提示（支持重试） -->
+        <div class="error-tip" v-else-if="hasError">
+          <span>{{ errorMsg }}</span>
+          <button class="retry-btn" @click="initRemarkList">重试</button>
+        </div>
+        <!-- 空数据提示 -->
+        <div class="empty-tip" v-else-if="remarkAgendas.length === 0">
           暂无备注的议程
         </div>
+        <!-- 备注列表 -->
         <div class="remark-list" v-else>
           <div class="remark-item" v-for="agenda in remarkAgendas" :key="agenda.id">
             <div class="remark-header">
               <div class="remark-title">{{ agenda.title }}</div>
               <div class="remark-time">{{ agenda.time }}</div>
             </div>
-            <div class="remark-content" v-html="agenda.remark"></div>
+            <div class="remark-content" v-html="agenda.remark || ''"></div>
             <div class="remark-actions">
-              <button class="btn-normal mini-btn" @click="goToEditRemark(agenda)">
+              <button 
+                class="btn-normal mini-btn" 
+                @click="goToEditRemark(agenda)"
+                :disabled="loading"
+              >
                 修改
               </button>
-              <button class="btn-danger mini-btn" @click="deleteRemark(agenda.id)">
-                删除
+              <button 
+                class="btn-danger mini-btn" 
+                @click="deleteRemark(agenda.id)"
+                :disabled="loading"
+              >
+                {{ loading ? '处理中...' : '删除' }}
               </button>
             </div>
           </div>
@@ -43,45 +63,126 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAgendaStore } from '../stores/agendaStore'
-import { Icon } from 'vant'
+import { useUserStore } from '@/stores/userStore'
+import { ElMessage } from 'element-plus'
+import { agendaApi } from '../api/index'
 
 const router = useRouter()
 const agendaStore = useAgendaStore()
-// 存储所有带备注的议程
-const remarkAgendas = ref([])
+const userStore = useUserStore()
 
-// 刷新备注列表
-const refreshRemarkList = () => {
-  remarkAgendas.value = agendaStore.getRemarkAgendas() || []
-}
+// 核心状态变量
+const remarkAgendas = ref([])
+const loading = ref(false) // 接口请求加载状态
+const hasError = ref(false) // 接口请求错误状态
+const errorMsg = ref('') // 错误提示信息
 
 // 页面挂载时初始化数据
 onMounted(() => {
-  // 加载本地持久化数据
-  agendaStore.loadAgendaFromLocalStorage()
-  // 刷新备注列表
-  refreshRemarkList()
+  // 第一步：校验用户是否登录
+  const token = localStorage.getItem('token')
+  const userInfo = userStore.userInfo
+  if (!token || !userInfo?.id) {
+    ElMessage.warning('请先登录再查看我的备注')
+    router.push({
+      path: '/login',
+      query: { redirect: '/remark' }
+    })
+    return
+  }
+
+  // 第二步：初始化备注列表
+  initRemarkList()
 })
+
+// 从后端加载备注列表
+const initRemarkList = async () => {
+  try {
+    // 重置状态，开启加载
+    loading.value = true
+    hasError.value = false
+    errorMsg.value = ''
+    remarkAgendas.value = []
+
+    // 获取当前用户 ID
+    const userId = userStore.userInfo.id
+
+    const res = await agendaApi.getRemarkAgendas({ userId })
+
+    // 校验接口返回结果
+    if (res && res.code === 200 && res.data) {
+      // 赋值备注列表（后端返回的议程数据）
+      remarkAgendas.value = res.data || []
+
+      agendaStore.updateRemarkAgendas(res.data)
+      agendaStore.saveAgendaToLocalStorage()
+    } else {
+      throw new Error(res?.msg || '获取备注列表失败')
+    }
+  } catch (err) {
+    // 处理接口错误
+    hasError.value = true
+    errorMsg.value = err.response?.data?.msg || err.message || '网络异常，无法加载备注列表'
+    ElMessage.error(errorMsg.value)
+    console.error('加载备注列表报错：', err)
+  } finally {
+    // 关闭加载状态
+    loading.value = false
+  }
+}
 
 // 跳转到会议流程页面修改备注
 const goToEditRemark = (agenda) => {
+  if (loading.value) return
   router.push({
     path: '/process', 
     query: { editRemarkId: agenda.id } // 传递要修改的议程ID
   })
 }
 
-// 删除备注
-const deleteRemark = (agendaId) => {
-  agendaStore.saveAgendaRemark(agendaId, '')
-  refreshRemarkList()
-  alert('备注已删除')
+const deleteRemark = async (agendaId) => {
+  if (!agendaId || loading.value) return
+
+  try {
+    // 开启加载状态
+    loading.value = true
+
+    // 构建请求参数（用户 ID + 议程 ID）
+    const reqData = {
+      userId: userStore.userInfo.id,
+      agendaId: agendaId
+    }
+
+    const res = await agendaApi.deleteAgendaRemark(reqData)
+
+    // 校验接口返回结果
+    if (res && res.code === 200) {
+      ElMessage.success('备注已删除')
+
+      // 同步更新前端数据（移除该议程）
+      remarkAgendas.value = remarkAgendas.value.filter(item => item.id !== agendaId)
+
+      // 同步更新 Pinia 和本地存储
+      agendaStore.saveAgendaRemark(agendaId, '')
+      agendaStore.saveAgendaToLocalStorage()
+    } else {
+      throw new Error(res?.msg || '删除备注失败')
+    }
+  } catch (err) {
+    const errMsg = err.response?.data?.msg || err.message || '网络异常，删除备注失败'
+    ElMessage.error(errMsg)
+    console.error('删除备注报错：', err)
+  } finally {
+    // 关闭加载状态
+    loading.value = false
+  }
 }
 
+// 返回我的页面
 const goBack = () => {
-  router.push({ 
-    path: '/mine' 
-  })
+  if (!loading.value) {
+    router.push({ path: '/mine' })
+  }
 }
 </script>
 
@@ -110,6 +211,10 @@ const goBack = () => {
   cursor: pointer;
   margin-right: 12px; 
 }
+.back-icon:disabled {
+  color: #c8c9cc;
+  cursor: not-allowed;
+}
 
 /* 标题 */
 .page-title {
@@ -132,6 +237,36 @@ const goBack = () => {
   padding: 15px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   margin-bottom: 10px;
+}
+
+/* 加载中提示 */
+.loading-tip {
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+  padding: 40px 0;
+}
+
+/* 错误提示 */
+.error-tip {
+  font-size: 14px;
+  color: #ff4d4f;
+  text-align: center;
+  padding: 40px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.retry-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background-color: #1989fa;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 /* 空数据提示样式 */
@@ -202,7 +337,13 @@ const goBack = () => {
   transition: background-color 0.3s ease;
 }
 
-.btn-normal:hover {
+.btn-normal:disabled {
+  background-color: #d9efff;
+  color: #8cc5ff;
+  cursor: not-allowed;
+}
+
+.btn-normal:hover:not(:disabled) {
   background-color: #d1eaff;
 }
 
@@ -217,7 +358,12 @@ const goBack = () => {
   transition: background-color 0.3s ease;
 }
 
-.btn-danger:hover {
+.btn-danger:disabled {
+  background-color: #ffb3b3;
+  cursor: not-allowed;
+}
+
+.btn-danger:hover:not(:disabled) {
   background-color: #ff3333;
 }
 

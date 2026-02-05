@@ -7,6 +7,7 @@
         color="#1989fa"
         class="back-icon"
         @click="goBack"
+        :disabled="isOperating"
       />
       <div class="page-title">系统设置</div>
     </div>
@@ -14,29 +15,33 @@
     <!-- 内容区域 -->
     <div class="page-content">
       <div class="setting-card card-common">
-        <div class="setting-item" @click="goToSecurityCenter">
+        <div class="setting-item" @click="goToSecurityCenter" :class="{ disabled: isOperating }">
           <div class="setting-label">安全中心</div>
           <van-icon name="arrow-right" size="16" color="#c8c9cc" />
         </div>
         <!-- 通用设置项 -->
         <div class="setting-item">
           <div class="setting-label">清除缓存</div>
-          <button class="btn-normal mini-btn" @click="clearCache">
-            一键清除
+          <button class="btn-normal mini-btn" @click="clearCache" :disabled="isOperating">
+            {{ isOperating ? '处理中...' : '一键清除' }}
           </button>
         </div>
         <div class="setting-item">
           <div class="setting-label">消息通知</div>
-          <van-switch v-model="notificationSwitch" color="#1989fa" />
+          <van-switch 
+            v-model="notificationSwitch" 
+            color="#1989fa"
+            :disabled="isOperating"
+            @change="handleNotificationSwitchChange"
+          />
         </div>
 
-        <div class="setting-item">
+        <div class="setting-item" @click="goToAbout" :class="{ disabled: isOperating }">
           <div class="setting-label">关于我们</div>
           <van-icon
             name="arrow-right"
             size="16"
             color="#c8c9cc"
-            @click="goToAbout"
           />
         </div>
         <div class="setting-item">
@@ -52,14 +57,17 @@
 import { ref, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAgendaStore } from "../stores/agendaStore";
+import { useUserStore } from "../stores/userStore"; 
+import { ElMessage, ElMessageBox } from "element-plus";
 
 const router = useRouter();
-
-// 用于清除缓存
 const agendaStore = useAgendaStore();
+const userStore = useUserStore();
 
-// 消息通知开关状态
 const notificationSwitch = ref(true);
+const isOperating = ref(false); // 操作加载状态，防止重复点击
+
+// 页面挂载初始化消息通知开关
 onMounted(() => {
   const savedSwitch = localStorage.getItem("notificationSwitch");
   if (savedSwitch !== null) {
@@ -67,34 +75,97 @@ onMounted(() => {
   }
 });
 
+// 返回我的页面
 const goBack = () => {
-  router.push({ path: "/mine" });
+  if (!isOperating.value) {
+    router.push({ path: "/mine" });
+  }
 };
 
-// 新增：跳转到安全中心
+// 跳转到安全中心
 const goToSecurityCenter = () => {
-  router.push("/security");
+  if (!isOperating.value) {
+    router.push("/security");
+  }
 };
 
 // 清除缓存
-const clearCache = () => {
-  // 清除议程相关缓存
-  agendaStore.clearAgendaStorage();
-  // 清除个人信息缓存
-  localStorage.removeItem("userName");
-  localStorage.removeItem("userAvatar");
-  // 清除消息通知开关缓存
-  localStorage.removeItem("notificationSwitch");
-  // 操作反馈
-  alert("缓存已清除完成！");
+const clearCache = async () => {
+  if (isOperating.value) return;
+  try {
+    await ElMessageBox.confirm(
+      "确定要清除所有缓存吗？清除后本地保存的非云端数据将丢失",
+      "提示",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch (err) {
+    ElMessage.info("已取消清除缓存");
+    return;
+  }
+
+  try {
+    isOperating.value = true;
+    agendaStore.clearAgendaStorage();
+    localStorage.removeItem("userInfo");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("userAvatar");
+    localStorage.removeItem("notificationSwitch");
+    localStorage.removeItem("redirect");
+    userStore.clearLocalUserCache();
+    ElMessage.success("缓存已清除完成！");
+  } catch (err) {
+    ElMessage.error("缓存清除失败：" + err.message);
+    console.error("清除缓存报错：", err);
+  } finally {
+    setTimeout(() => {
+      isOperating.value = false;
+    }, 500);
+  }
 };
 
 const goToAbout = () => {
-  alert("关于我们：会议管理系统 v1.0.0，专注于高效会议议程管理");
+  if (isOperating.value) return;
+  ElMessage.info("会议管理系统 v1.0.0，专注于高效会议议程管理");
 };
 
-watch(notificationSwitch, (newValue) => {
+const handleNotificationSwitchChange = async (newValue) => {
+  if (isOperating.value) return;
+
   localStorage.setItem("notificationSwitch", newValue);
+  try {
+    const token = localStorage.getItem("token");
+    const userInfo = userStore.userInfo;
+    if (token && userInfo.id) {
+      isOperating.value = true;
+
+      // 调用后端更新消息通知状态接口（需封装 api）
+      // const res = await userApi.updateNotificationStatus({
+      //   userId: userInfo.id,
+      //   notificationStatus: newValue
+      // });
+
+      // 模拟接口调用
+      await new Promise(resolve => setTimeout(resolve, 300));
+      ElMessage.success(newValue ? "已开启消息通知" : "已关闭消息通知");
+    }
+  } catch (err) {
+    ElMessage.warning("消息通知状态云端同步失败，仅本地生效");
+    console.error("同步消息通知状态报错：", err);
+  } finally {
+    // 关闭操作状态
+    isOperating.value = false;
+  }
+};
+
+// 监听消息通知开关变化
+watch(notificationSwitch, (newValue) => {
+  if (!isOperating.value) {
+    localStorage.setItem("notificationSwitch", newValue);
+  }
 });
 </script>
 
@@ -121,6 +192,14 @@ watch(notificationSwitch, (newValue) => {
 .back-icon {
   cursor: pointer;
   margin-right: 12px;
+  transition: color 0.2s;
+}
+.back-icon:disabled {
+  color: #c8c9cc;
+  cursor: not-allowed;
+}
+.back-icon:hover:not(:disabled) {
+  color: #1677ff;
 }
 
 /* 标题 */
@@ -153,11 +232,19 @@ watch(notificationSwitch, (newValue) => {
   align-items: center;
   padding: 16px 0;
   border-bottom: 1px solid #f0f0f0;
-  cursor: pointer; /* 新增：安全中心项添加点击光标 */
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
-
 .setting-item:last-child {
   border-bottom: none;
+}
+.setting-item.disabled {
+  background-color: #f9fafb;
+  color: #c8c9cc;
+  cursor: not-allowed;
+}
+.setting-item:hover:not(.disabled) {
+  background-color: #f5fafe;
 }
 
 .setting-label {
@@ -179,8 +266,12 @@ watch(notificationSwitch, (newValue) => {
   cursor: pointer;
   transition: background-color 0.3s ease;
 }
-
-.btn-normal:hover {
+.btn-normal:disabled {
+  background-color: #d9efff;
+  color: #8cc5ff;
+  cursor: not-allowed;
+}
+.btn-normal:hover:not(:disabled) {
   background-color: #d1eaff;
 }
 

@@ -90,12 +90,13 @@
             </div>
 
             <div class="agenda-actions">
-              <button class="btn-normal mini-btn" @click="openTagDialog(agenda)">
+              <button class="btn-normal mini-btn" @click="openTagDialog(agenda)" :disabled="agendaLoading">
                 标签
               </button>
               <button
                 class="btn-normal mini-btn"
                 @click="openRemarkDialog(agenda)"
+                :disabled="agendaLoading"
               >
                 备注
               </button>
@@ -103,12 +104,14 @@
                 class="btn-normal mini-btn"
                 :class="{ collected: agenda.isCollected }"
                 @click="handleToggleCollect(agenda.id)"
+                :disabled="collectLoading"
               >
                 {{ agenda.isCollected ? "已收藏" : "收藏" }}
               </button>
               <button
                 class="btn-normal mini-btn"
                 @click="openShareDialog(agenda)"
+                :disabled="agendaLoading"
               >
                 分享
               </button>
@@ -130,6 +133,7 @@
               <button
                 class="btn-danger mini-btn"
                 @click="handleDeleteAgenda(agenda.id)"
+                :disabled="agendaLoading"
               >
                 删除
               </button>
@@ -143,10 +147,10 @@
               <div class="remark-label">备注：</div>
               <div class="remark-content" v-html="agenda.remark"></div>
               <div class="remark-actions">
-                <button class="btn-normal mini-btn remark-edit" @click="openRemarkDialog(agenda)">
+                <button class="btn-normal mini-btn remark-edit" @click="openRemarkDialog(agenda)" :disabled="agendaLoading">
                   修改
                 </button>
-                <button class="btn-danger mini-btn remark-delete" @click="deleteAgendaRemark(agenda.id)">
+                <button class="btn-danger mini-btn remark-delete" @click="deleteAgendaRemark(agenda.id)" :disabled="agendaLoading">
                   删除
                 </button>
               </div>
@@ -170,6 +174,7 @@
             class="form-input"
             v-model="editAgenda.title"
             placeholder="请输入议程标题"
+            :disabled="agendaLoading"
           />
         </div>
         <div class="form-item">
@@ -178,17 +183,20 @@
             class="form-input"
             type="datetime-local"
             v-model="editAgenda.time"
+            :disabled="agendaLoading"
           />
         </div>
         <div class="dialog-btn-group">
           <button
             class="dialog-cancel-btn"
             @click="editDialogVisible = false"
+            :disabled="agendaLoading"
           >
             取消
           </button>
-          <button class="dialog-confirm-btn" @click="handleEditAgenda">
-            确认修改
+          <button class="dialog-confirm-btn" @click="handleEditAgenda" :disabled="agendaLoading">
+            <span v-if="agendaLoading">提交中...</span>
+            <span v-else>确认修改</span>
           </button>
         </div>
       </div>
@@ -209,11 +217,15 @@
             :key="tag"
             :class="{ selected: currentAgendaTags.includes(tag) }"
             @click="toggleTag(tag)"
+            :disabled="agendaLoading"
           >
             {{ tag }}
           </div>
         </div>
-        <button class="dialog-confirm-btn" @click="saveTags">确认保存</button>
+        <button class="dialog-confirm-btn" @click="saveTags" :disabled="agendaLoading">
+          <span v-if="agendaLoading">保存中...</span>
+          <span v-else>确认保存</span>
+        </button>
       </div>
     </div>
 
@@ -230,15 +242,20 @@
           v-model="currentRemark"
           placeholder="请输入该议程的备注信息（支持简单HTML格式，如&lt;br/&gt;换行）"
           rows="8"
+          :disabled="agendaLoading"
         ></textarea>
         <div class="dialog-btn-group">
           <button
             class="dialog-cancel-btn"
             @click="remarkDialogVisible = false"
+            :disabled="agendaLoading"
           >
             取消
           </button>
-          <button class="dialog-confirm-btn" @click="saveRemark">确认</button>
+          <button class="dialog-confirm-btn" @click="saveRemark" :disabled="agendaLoading">
+            <span v-if="agendaLoading">提交中...</span>
+            <span v-else>确认</span>
+          </button>
         </div>
       </div>
     </div>
@@ -283,14 +300,26 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAgendaStore } from '../../stores/agendaStore'
 import { useScheduleStore } from '../../stores/scheduleStore'
+// 引入收藏API（如需直接调用，也可从Store方法复用）
+import { collectApi } from '../../api/index'
 
 // 初始化Pinia仓库
 const agendaStore = useAgendaStore()
 const scheduleStore = useScheduleStore()
 
-// 解构仓库响应式数据
-const { agendaList } = storeToRefs(agendaStore)
-const { notifications } = storeToRefs(scheduleStore)
+// 解构仓库响应式数据（包含后端加载状态和错误信息）
+const { agendaList, agendaLoading, agendaError } = storeToRefs(agendaStore)
+const { notifications, collectLoading, collectError } = storeToRefs(scheduleStore)
+
+// 解构仓库异步方法（对接后端API）
+const { 
+  fetchMyAgendas, 
+  updateAgenda, 
+  saveAgendaTags, 
+  saveAgendaRemark, 
+  deleteAgenda 
+} = agendaStore
+const { toggleFlowStepCollect } = scheduleStore
 
 // 初始化路由
 const router = useRouter()
@@ -320,7 +349,7 @@ const editAgenda = ref({
 
 const reminderTimers = ref([])
 
-// 
+// 配置常量（保持原有业务逻辑）
 const CLEAN_HOUR = 8 // 次日早上清理时间（默认8:00）
 const UPCOMING_RANGE = 2 * 60 * 60 * 1000 // 即将开始：2小时内
 const ENDED_RANGE = 1 * 60 * 60 * 1000 // 正在进行：会议开始后1小时内
@@ -346,7 +375,7 @@ const isYesterday = (agendaTime) => {
   return agendaDateStamp === yesterdayStamp && agendaDateStamp < todayStamp
 }
 
-// 筛选会议状态：即将开始/正在进行/已结束
+// 筛选会议状态：即将开始/正在进行/已结束（业务逻辑不变，数据来源改为后端）
 const meetingStatusAgendas = computed(() => {
   if (!agendaList.value || agendaList.value.length === 0) return []
 
@@ -396,7 +425,7 @@ const meetingStatusAgendas = computed(() => {
 })
 
 // 会议状态列表实时刷新
-watch(agendaList, () => {})
+watch(agendaList, () => {}, { deep: true })
 
 // 格式化当前时间
 const formatCurrentDateTime = () => {
@@ -436,26 +465,33 @@ const formatLocaleTime = (date) => {
   })
 }
 
-// 清理前一天已结束的会议
-const clearYesterdayAgendas = () => {
+// 改造：清理前一天已结束的会议（对接后端接口，不再修改本地存储）
+const clearYesterdayAgendas = async () => {
   if (!agendaList.value || agendaList.value.length === 0) return
 
-  // 筛选出「非前一天」的议程
-  const validAgendas = agendaList.value.filter(agenda => {
-    return !isYesterday(agenda.time)
-  })
+  try {
+    // 1. 筛选出需要清理的前一天议程ID
+    const needDeleteIds = agendaList.value
+      .filter(agenda => isYesterday(agenda.time))
+      .map(agenda => agenda.id)
 
-  // 计算清理数量
-  const deletedCount = agendaList.value.length - validAgendas.length
-  if (deletedCount > 0) {
-    console.log(`[每日自动清理] 已清空${deletedCount}条前一天已结束的会议`)
-    // 开启用户提示
-    showToast(`已自动清理${deletedCount}条前一天已结束的会议`)
+    if (needDeleteIds.length === 0) return
+
+    // 2. 批量调用后端删除接口（若后端无批量接口，可循环调用单个删除）
+    for (const id of needDeleteIds) {
+      await deleteAgenda(id)
+    }
+
+    // 3. 刷新前端议程列表（拉取最新数据）
+    await fetchMyAgendas()
+
+    // 4. 提示用户
+    showToast(`已自动清理${needDeleteIds.length}条前一天已结束的会议`)
+    console.log(`[每日自动清理] 已清空${needDeleteIds.length}条前一天已结束的会议`)
+  } catch (err) {
+    console.error('每日清理议程失败：', err)
+    showToast('自动清理已结束会议失败，请手动处理')
   }
-
-  // 更新Pinia仓库和本地存储，保证数据持久化
-  agendaStore.agendaList = validAgendas
-  localStorage.setItem('agendaList', JSON.stringify(validAgendas))
 }
 
 // 计算距离次日清理时间的毫秒数
@@ -474,7 +510,7 @@ const getTimeToNextClean = () => {
   return nextClean.getTime() - now.getTime()
 }
 
-// 启动每日定时清理任务
+// 启动每日定时清理任务（逻辑不变，内部调用异步后端方法）
 const startDailyCleanTask = () => {
   // 清除已有定时器
   if (dailyCleanTimer) clearTimeout(dailyCleanTimer)
@@ -484,23 +520,25 @@ const startDailyCleanTask = () => {
 
   // 设置一次性定时器，到点执行清理
   dailyCleanTimer = setTimeout(() => {
-    // 执行清理
+    // 执行异步清理
     clearYesterdayAgendas()
-
     // 清理完成后，重新启动下一日的定时任务
     startDailyCleanTask()
   }, timeToNextClean)
 }
 
-// 加载数据 + 检查是否需要立即清理 + 启动每日定时任务
-onMounted(() => {
+// 改造：页面挂载时加载后端数据（不再加载本地存储）
+onMounted(async () => {
   loading.value = true
   try {
-    // 加载本地存储的议程数据
-    agendaStore.loadAgendaFromLocalStorage()
+    // 1. 从后端拉取议程列表（核心：替换本地存储加载）
+    await fetchMyAgendas()
 
+    // 2. 从后端拉取收藏列表（同步收藏状态）
+    await scheduleStore.fetchMyCollects()
+
+    // 3. 检查当前时间是否已过今日清理时间，如需立即清理
     const now = new Date()
-    // 检查当前时间是否已过今日清理时间
     const todayClean = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -512,10 +550,10 @@ onMounted(() => {
     )
 
     if (now.getTime() > todayClean.getTime()) {
-      clearYesterdayAgendas()
+      await clearYesterdayAgendas()
     }
 
-    // 启动每日定时清理任务
+    // 4. 启动每日定时清理任务
     startDailyCleanTask()
   } catch (err) {
     errorMsg.value = "数据加载失败，请刷新页面"
@@ -523,6 +561,12 @@ onMounted(() => {
   } finally {
     loading.value = false
   }
+
+  // 监听Store错误信息，同步到页面
+  watch([agendaError, collectError], ([agendaErr, collectErr]) => {
+    if (agendaErr) errorMsg.value = agendaErr
+    if (collectErr && !errorMsg.value) errorMsg.value = collectErr
+  }, { immediate: true })
 })
 
 // 页面卸载时：清除所有定时器
@@ -570,12 +614,18 @@ const toggleTag = (tag) => {
   }
 }
 
-// 保存标签修改
-const saveTags = () => {
-  if (!currentAgendaId.value) return
-  agendaStore.saveAgendaTags(currentAgendaId.value, currentAgendaTags.value)
-  tagDialogVisible.value = false
-  showToast("标签保存成功")
+// 改造：保存标签修改（异步对接后端）
+const saveTags = async () => {
+  if (!currentAgendaId.value || agendaLoading.value) return
+
+  try {
+    await saveAgendaTags(currentAgendaId.value, currentAgendaTags.value)
+    tagDialogVisible.value = false
+    showToast("标签保存成功")
+  } catch (err) {
+    console.error('保存标签失败：', err)
+    showToast("标签保存失败，请稍后重试")
+  }
 }
 
 // 打开备注编辑弹窗
@@ -585,23 +635,38 @@ const openRemarkDialog = (agenda) => {
   remarkDialogVisible.value = true
 }
 
-// 保存备注修改
-const saveRemark = () => {
-  if (!currentAgendaId.value) return
-  agendaStore.saveAgendaRemark(currentAgendaId.value, currentRemark.value.trim())
-  remarkDialogVisible.value = false
-  showToast("备注保存成功")
+// 改造：保存备注修改（异步对接后端）
+const saveRemark = async () => {
+  if (!currentAgendaId.value || agendaLoading.value) return
+
+  try {
+    await saveAgendaRemark(currentAgendaId.value, currentRemark.value.trim())
+    remarkDialogVisible.value = false
+    showToast("备注保存成功")
+  } catch (err) {
+    console.error('保存备注失败：', err)
+    showToast("备注保存失败，请稍后重试")
+  }
 }
 
-// 删除备注
-const deleteAgendaRemark = (agendaId) => {
-  agendaStore.saveAgendaRemark(agendaId, "")
-  showToast("备注已删除")
+// 改造：删除备注（异步对接后端）
+const deleteAgendaRemark = async (agendaId) => {
+  if (agendaLoading.value) return
+
+  try {
+    await saveAgendaRemark(agendaId, "")
+    showToast("备注已删除")
+  } catch (err) {
+    console.error('删除备注失败：', err)
+    showToast("备注删除失败，请稍后重试")
+  }
 }
 
 // 打开分享弹窗
 const openShareDialog = (agenda) => {
-  currentShareLink.value = `https://meeting-system.com/agenda/${agenda.id}?title=${encodeURIComponent(agenda.title)}`
+  // 改造：分享链接对接后端域名（可配置为全局环境变量）
+  const baseUrl = import.meta.env.VITE_APP_BASE_URL || "https://meeting-system.com"
+  currentShareLink.value = `${baseUrl}/agenda/${agenda.id}?title=${encodeURIComponent(agenda.title)}`
   shareDialogVisible.value = true
 }
 
@@ -614,17 +679,32 @@ const copyLink = () => {
   })
 }
 
-// 切换议程收藏状态
-const handleToggleCollect = (agendaId) => {
-  agendaStore.toggleAgendaCollect(agendaId)
+// 改造：切换议程收藏状态（异步对接后端收藏API）
+const handleToggleCollect = async (agendaId) => {
+  if (collectLoading.value) return
+
+  // 找到当前议程（获取stepIndex，默认0，若有多步骤需调整）
+  const agenda = agendaList.value.find(item => item.id === agendaId)
+  if (!agenda) return showToast("议程不存在，无法操作收藏")
+
+  // 调用Store中的异步收藏切换方法（对接后端）
+  const success = await toggleFlowStepCollect(agendaId, 0) // 此处stepIndex默认0，根据实际业务调整
+  if (!success) {
+    showToast(collectError.value || "收藏操作失败，请稍后重试")
+    return
+  }
+
+  // 操作成功提示
   const latestAgenda = agendaList.value.find(item => item.id === agendaId)
   if (latestAgenda) {
     showToast(latestAgenda.isCollected ? "收藏成功" : "已取消收藏")
   }
 }
 
-// 删除指定议程并清除对应提醒定时器
-const handleDeleteAgenda = (agendaId) => {
+// 改造：删除指定议程并清除对应提醒定时器（异步对接后端）
+const handleDeleteAgenda = async (agendaId) => {
+  if (agendaLoading.value) return
+
   // 清除该议程对应的提醒定时器
   reminderTimers.value = reminderTimers.value.filter(item => {
     if (item.agendaId === agendaId) {
@@ -635,10 +715,16 @@ const handleDeleteAgenda = (agendaId) => {
   })
 
   // 确认删除
-  if (confirm("确定要删除该议程吗？删除后不可恢复")) {
-    agendaStore.agendaList = agendaList.value.filter(item => item.id !== agendaId)
-    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
+  if (!confirm("确定要删除该议程吗？删除后不可恢复")) return
+
+  try {
+    await deleteAgenda(agendaId)
+    // 刷新议程列表
+    await fetchMyAgendas()
     showToast("议程已删除")
+  } catch (err) {
+    console.error('删除议程失败：', err)
+    showToast("议程删除失败，请稍后重试")
   }
 }
 
@@ -653,21 +739,34 @@ const openEditDialog = (agenda) => {
   editDialogVisible.value = true
 }
 
-// 保存编辑修改
-const handleEditAgenda = () => {
+// 改造：保存编辑修改（异步对接后端）
+const handleEditAgenda = async () => {
+  if (agendaLoading.value) return
   if (!editAgenda.value.title.trim()) {
     return showToast("请输入议程标题")
   }
-  agendaStore.updateAgenda(editAgenda.value.id, {
-    title: editAgenda.value.title,
-    time: editAgenda.value.time.replace('T', ' ')
-  })
-  editDialogVisible.value = false
-  showToast("议程修改成功")
+
+  try {
+    // 格式化时间（适配后端存储格式）
+    const formattedTime = editAgenda.value.time.replace('T', ' ')
+    // 调用异步更新方法
+    const success = await updateAgenda(editAgenda.value.id, {
+      title: editAgenda.value.title,
+      time: formattedTime
+    })
+
+    if (!success) throw new Error("更新议程接口返回失败")
+
+    editDialogVisible.value = false
+    showToast("议程修改成功")
+  } catch (err) {
+    console.error('修改议程失败：', err)
+    showToast("议程修改失败，请稍后重试")
+  }
 }
 
 /**
- * 设置浏览器本地通知提醒（提前15分钟触发）
+ * 设置浏览器本地通知提醒（提前15分钟触发）（原有逻辑不变，仅数据来源为后端）
  * @param {object} agenda 议程对象
  */
 const setBrowserReminder = (agenda) => {
@@ -704,7 +803,7 @@ const setBrowserReminder = (agenda) => {
 }
 
 /**
- * 创建浏览器提醒定时器
+ * 创建浏览器提醒定时器（原有逻辑不变）
  * @param {object} agenda 议程对象
  * @param {Date} reminderDate 提醒触发日期
  */
@@ -752,7 +851,7 @@ const createBrowserReminderTimer = (agenda, reminderDate) => {
 }
 
 /**
- * 添加议程到手机原生日历（兼容iOS/Android）
+ * 添加议程到手机原生日历（兼容iOS/Android）（原有逻辑不变）
  * @param {object} agenda 议程对象
  */
 const addToMobileCalendar = (agenda) => {
@@ -1111,13 +1210,19 @@ END:VCALENDAR`.replace(/\n/g, '')
   font-size: 12px;
 }
 
-.btn-normal:hover {
+.btn-normal:hover:not(:disabled) {
   background-color: #e5e5e5;
 }
 
 .btn-normal.collected {
   background-color: #fff2f2;
   color: #ff4d4f;
+}
+
+.btn-normal:disabled {
+  background-color: #f9f9f9;
+  color: #ccc;
+  cursor: not-allowed;
 }
 
 .btn-danger {
@@ -1131,8 +1236,13 @@ END:VCALENDAR`.replace(/\n/g, '')
   transition: background-color 0.3s ease;
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background-color: #ff3333;
+}
+
+.btn-danger:disabled {
+  background-color: #ffcccc;
+  cursor: not-allowed;
 }
 
 .mini-btn {
@@ -1247,6 +1357,12 @@ END:VCALENDAR`.replace(/\n/g, '')
   box-sizing: border-box;
 }
 
+.form-input:disabled {
+  background-color: #f9f9f9;
+  border-color: #eee;
+  color: #ccc;
+}
+
 .dialog-btn-group {
   display: flex;
   gap: 10px;
@@ -1264,8 +1380,14 @@ END:VCALENDAR`.replace(/\n/g, '')
   transition: background-color 0.3s ease;
 }
 
-.dialog-cancel-btn:hover {
+.dialog-cancel-btn:hover:not(:disabled) {
   background-color: #e5e5e5;
+}
+
+.dialog-cancel-btn:disabled {
+  background-color: #f9f9f9;
+  color: #ccc;
+  cursor: not-allowed;
 }
 
 .dialog-confirm-btn {
@@ -1280,8 +1402,13 @@ END:VCALENDAR`.replace(/\n/g, '')
   transition: background-color 0.3s ease;
 }
 
-.dialog-confirm-btn:hover {
+.dialog-confirm-btn:hover:not(:disabled) {
   background-color: #096dd9;
+}
+
+.dialog-confirm-btn:disabled {
+  background-color: #8cc5ff;
+  cursor: not-allowed;
 }
 
 /* 标签选择弹窗 */
@@ -1306,6 +1433,12 @@ END:VCALENDAR`.replace(/\n/g, '')
   color: #1989fa;
 }
 
+.tag-option:disabled {
+  background-color: #f9f9f9;
+  color: #ccc;
+  cursor: not-allowed;
+}
+
 /* 备注弹窗 */
 .remark-input {
   width: 100%;
@@ -1316,6 +1449,12 @@ END:VCALENDAR`.replace(/\n/g, '')
   box-sizing: border-box;
   resize: none;
   margin-bottom: 16px;
+}
+
+.remark-input:disabled {
+  background-color: #f9f9f9;
+  border-color: #eee;
+  color: #ccc;
 }
 
 /* 分享弹窗 */

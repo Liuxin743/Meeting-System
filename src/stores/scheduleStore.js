@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useAgendaStore } from './agendaStore';
+import { collectApi } from '@/api/index'; 
 
 export const useScheduleStore = defineStore('schedule', () => {
   const agendaStore = useAgendaStore();
@@ -12,15 +13,35 @@ export const useScheduleStore = defineStore('schedule', () => {
     personalSchedule: []
   });
 
-  // 收藏的流程步骤（本地存储持久化）
-  const collectedFlowSteps = ref(
-    JSON.parse(localStorage.getItem('collectedFlowSteps') || '[]')
-  );
+  // 收藏的流程步骤
+  const collectedFlowSteps = ref([]);
+  // 收藏相关加载状态
+  const collectLoading = ref(false);
+  // 收藏相关错误信息
+  const collectError = ref('');
 
-  // 个人专属日程（所有流程步骤）
+  const fetchMyCollects = async () => {
+    try {
+      collectLoading.value = true;
+      collectError.value = '';
+      const res = await collectApi.getMyCollects(); // 调用后端接口
+      collectedFlowSteps.value = res.data || []; 
+    } catch (error) {
+      collectError.value = '获取收藏列表失败，请稍后重试';
+      console.error('获取收藏列表失败:', error);
+      collectedFlowSteps.value = [];
+    } finally {
+      collectLoading.value = false;
+    }
+  };
+
+  // 个人专属日程
   const personalSchedule = computed(() => {
-    const _ = agendaStore.agendaList; 
     const allSteps = [];
+    // 先判断议程列表是否存在
+    if (!agendaStore.agendaList || agendaStore.agendaList.length === 0) {
+      return allSteps;
+    }
 
     agendaStore.agendaList.forEach(agenda => {
       if (agenda.flows && agenda.flows.length) {
@@ -50,10 +71,12 @@ export const useScheduleStore = defineStore('schedule', () => {
     return allSteps;
   });
 
-  // 想听日程（仅已收藏的流程步骤）
+  // 想听日程
   const wishSchedule = computed(() => {
-    const _ = agendaStore.agendaList;
     const collectedSteps = [];
+    if (!agendaStore.agendaList || agendaStore.agendaList.length === 0) {
+      return collectedSteps;
+    }
 
     collectedFlowSteps.value.forEach(collected => {
       const agenda = agendaStore.agendaList.find(item => item.id === collected.agendaId);
@@ -161,22 +184,36 @@ export const useScheduleStore = defineStore('schedule', () => {
       return '时间解析失败';
     }
   }
-  // 切换收藏状态
-  const toggleFlowStepCollect = (agendaId, stepIndex) => {
-    const index = collectedFlowSteps.value.findIndex(item => 
-      item.agendaId === agendaId && item.stepIndex === stepIndex
-    );
-    if (index > -1) {
-      // 取消收藏
-      collectedFlowSteps.value.splice(index, 1);
-    } else {
-      // 新增收藏
-      collectedFlowSteps.value.push({ agendaId, stepIndex });
+
+  const toggleFlowStepCollect = async (agendaId, stepIndex) => {
+    try {
+      collectLoading.value = true;
+      collectError.value = '';
+      const index = collectedFlowSteps.value.findIndex(item => 
+        item.agendaId === agendaId && item.stepIndex === stepIndex
+      );
+      
+      if (index > -1) {
+        // 取消收藏
+        await collectApi.removeCollect(agendaId, stepIndex);
+        collectedFlowSteps.value.splice(index, 1);
+      } else {
+        // 新增收藏
+        const collectData = { agendaId, stepIndex };
+        await collectApi.addCollect(collectData);
+        collectedFlowSteps.value.push(collectData);
+      }
+      
+      // 触发计算属性更新
+      coreScheduleTime.value = { ...coreScheduleTime.value };
+      return true;
+    } catch (error) {
+      collectError.value = '操作收藏失败，请稍后重试';
+      console.error('切换收藏状态失败:', error);
+      return false;
+    } finally {
+      collectLoading.value = false;
     }
-    // 同步到本地存储
-    localStorage.setItem('collectedFlowSteps', JSON.stringify(collectedFlowSteps.value));
-    // 触发计算属性更新
-    coreScheduleTime.value = { ...coreScheduleTime.value };
   };
 
   // 判断是否已收藏
@@ -186,30 +223,35 @@ export const useScheduleStore = defineStore('schedule', () => {
     );
   };
 
-  // 清空个人专属日程中已结束的项
-  const clearEndedPersonalSchedule = () => {
+  const clearEndedPersonalSchedule = async () => {
     try {
+      collectLoading.value = true;
+      collectError.value = '';
       const endedItems = personalSchedule.value.filter(item => item.isEnded);
       if (endedItems.length === 0) return;
       
-      // 移除已结束项的收藏状态
-      endedItems.forEach(item => {
+      // 批量删除已结束的收藏
+      for (const item of endedItems) {
         const { agendaId, stepIndex } = item;
         const collectIndex = collectedFlowSteps.value.findIndex(col => 
           col.agendaId === agendaId && col.stepIndex === stepIndex
         );
         if (collectIndex > -1) {
+          // 先调用后端删除
+          await collectApi.removeCollect(agendaId, stepIndex);
+          // 再更新前端状态
           collectedFlowSteps.value.splice(collectIndex, 1);
         }
-      });
+      }
       
-      // 同步到本地存储
-      localStorage.setItem('collectedFlowSteps', JSON.stringify(collectedFlowSteps.value));
       // 触发更新
       coreScheduleTime.value = { ...coreScheduleTime.value };
       console.log(`已自动清空 ${endedItems.length} 个已结束的日程`);
     } catch (error) {
+      collectError.value = '清空已结束日程失败，请稍后重试';
       console.error('自动清空已结束日程失败:', error);
+    } finally {
+      collectLoading.value = false;
     }
   };
 
@@ -248,7 +290,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     }
   }, { immediate: true });
 
-  // 其他辅助方法
+
   const addAgendaEditNotification = (agenda) => {
     notifications.value.unshift({
       id: Date.now(),
@@ -257,6 +299,16 @@ export const useScheduleStore = defineStore('schedule', () => {
       status: '已生效',
       createTime: new Date().toLocaleString()
     });
+    // 可选：对接后端创建通知接口
+    // try {
+    //   await noticeApi.createNotice({
+    //     title: `议程「${agenda.title}」已更新`,
+    //     content: `更新后时间：${agenda.time}`,
+    //     status: '已生效'
+    //   });
+    // } catch (error) {
+    //   console.error('创建后端通知失败:', error);
+    // }
   };
 
   // 清空通知
@@ -270,12 +322,16 @@ export const useScheduleStore = defineStore('schedule', () => {
     coreScheduleTime,
     personalSchedule,
     wishSchedule,
+    collectedFlowSteps,
+    collectLoading,
+    collectError,
     // 方法
     toggleFlowStepCollect,
     isFlowStepCollected,
     calculateCountdown,
     addAgendaEditNotification,
     clearNotifications,
-    clearEndedPersonalSchedule
+    clearEndedPersonalSchedule,
+    fetchMyCollects 
   };
 });

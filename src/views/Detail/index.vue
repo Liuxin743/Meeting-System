@@ -1,107 +1,124 @@
 <template>
   <div class="detail-view">
     <div class="page-content">
-      <div class="schedule-card card-common report-card">
-        <div class="card-header">
-          <h3 class="card-title">个人专属日程</h3>
-          <span class="count-badge">{{ personalSchedule.length }}</span>
-        </div>
-        <div class="cell-group">
-          <!-- 无内容提示 -->
-          <div v-if="personalSchedule.length === 0" class="empty-tip">
-            暂无个人专属日程
+      <!-- 加载中提示 -->
+      <div v-if="loading" class="loading-tip">
+        正在加载数据...
+      </div>
+
+      <!-- 错误提示 -->
+      <div v-else-if="errorMsg" class="error-tip">
+        {{ errorMsg }}
+      </div>
+
+      <div v-else>
+        <div class="schedule-card card-common report-card">
+          <div class="card-header">
+            <h3 class="card-title">个人专属日程</h3>
+            <span class="count-badge">{{ personalSchedule.length }}</span>
           </div>
-          <div 
-            class="cell-item report-item" 
-            v-for="item in personalSchedule" 
-            :key="`personal-${item.agendaId}-${item.stepIndex}`"
-            :class="{ ended: item.isEnded }"
-          >
-            <div class="cell-icon">
-              <span :class="getIconClass(item.icon)"></span>
-              <!-- 收藏标记 -->
-              <span v-if="item.isCollected" class="collect-tag">❤️</span>
+          <div class="cell-group">
+            <!-- 无内容提示 -->
+            <div v-if="personalSchedule.length === 0" class="empty-tip">
+              暂无个人专属日程
             </div>
-            <div class="cell-content">
-              <div class="cell-title">{{ item.time }}</div>
-              <div class="cell-value">{{ item.content }}</div>
-              <!-- 倒计时展示 -->
-              <div class="countdown-box">
-                 {{ getCountdown(item.time) }}
+            <div 
+              class="cell-item report-item" 
+              v-for="item in personalSchedule" 
+              :key="`personal-${item.agendaId}-${item.stepIndex}`"
+              :class="{ ended: item.isEnded }"
+              @click="toggleCollect(item.agendaId, item.stepIndex)" 
+            >
+              <div class="cell-icon">
+                <span :class="getIconClass(item.icon)"></span>
+                <!-- 收藏标记 -->
+                <span v-if="item.isCollected" class="collect-tag">❤️</span>
+              </div>
+              <div class="cell-content">
+                <div class="cell-title">{{ item.time }}</div>
+                <div class="cell-value">{{ item.content }}</div>
+                <!-- 倒计时展示：直接使用 item 中的 countdown（Store 已计算） -->
+                <div class="countdown-box">
+                   {{ item.countdown }}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 想听日程 -->
-      <div class="schedule-card card-common wish-card" style="margin-top: 10px;">
-        <div class="card-header">
-          <h3 class="card-title">想听日程</h3>
-          <span class="count-badge">{{ wishSchedule.length }}</span>
-        </div>
-        <div class="cell-group">
-          <!-- 无内容提示 -->
-          <div v-if="wishSchedule.length === 0" class="empty-tip">
-            暂无想听日程（请先收藏流程步骤）
+        <!-- 想听日程 -->
+        <div class="schedule-card card-common wish-card" style="margin-top: 10px;">
+          <div class="card-header">
+            <h3 class="card-title">想听日程</h3>
+            <span class="count-badge">{{ wishSchedule.length }}</span>
           </div>
-          <div 
-            class="cell-item" 
-            v-for="item in wishSchedule" 
-            :key="`wish-${item.agendaId}-${item.stepIndex}`"
-            :class="{ ended: item.isEnded }"
-          >
-            <div class="cell-icon">
-              <span :class="getIconClass(item.icon)"></span>
-              <span class="collect-tag">❤️</span>
+          <div class="cell-group">
+            <!-- 无内容提示 -->
+            <div v-if="wishSchedule.length === 0" class="empty-tip">
+              暂无想听日程（请先收藏流程步骤）
             </div>
-            <div class="cell-content">
-              <div class="cell-title">{{ item.time }}</div>
-              <div class="cell-value">{{ item.content }}</div>
-              <!-- 想听日程也显示倒计时 -->
-              <div class="countdown-box">
-                 {{ getCountdown(item.time) }}
+            <div 
+              class="cell-item" 
+              v-for="item in wishSchedule" 
+              :key="`wish-${item.agendaId}-${item.stepIndex}`"
+              :class="{ ended: item.isEnded }"
+              @click="toggleCollect(item.agendaId, item.stepIndex)"
+            >
+              <div class="cell-icon">
+                <span :class="getIconClass(item.icon)"></span>
+                <span class="collect-tag">❤️</span>
+              </div>
+              <div class="cell-content">
+                <div class="cell-title">{{ item.time }}</div>
+                <div class="cell-value">{{ item.content }}</div>
+                <!-- 倒计时展示：直接使用 item 中的 countdown（Store 已计算） -->
+                <div class="countdown-box">
+                   {{ item.countdown }}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      
-      <!-- 议程编辑区域 -->
-      <div class="adjust-card card-common" style="margin-top: 10px;">
-        <h3 class="card-title">编辑会议议程</h3>
-        <!-- 选择要编辑的议程 -->
-        <div class="agenda-select">
-          <select v-model="selectedAgendaId" class="select-input">
-            <option value="">请选择要编辑的议程</option>
-            <option v-for="agenda in agendaList" :value="agenda.id" :key="agenda.id">
-              {{ agenda.title }}（{{ agenda.time }}）
-            </option>
-          </select>
-        </div>
+        
+        <!-- 议程编辑区域 -->
+        <div class="adjust-card card-common" style="margin-top: 10px;">
+          <h3 class="card-title">编辑会议议程</h3>
+          <!-- 选择要编辑的议程 -->
+          <div class="agenda-select">
+            <select v-model="selectedAgendaId" class="select-input" :disabled="agendaLoading">
+              <option value="">请选择要编辑的议程</option>
+              <option v-for="agenda in agendaList" :value="agenda.id" :key="agenda.id">
+                {{ agenda.title }}（{{ agenda.time }}）
+              </option>
+            </select>
+          </div>
 
-        <!-- 议程编辑表单 -->
-        <div class="edit-form" v-if="selectedAgenda">
-          <div class="form-item">
-            <label class="form-label">议程标题：</label>
-            <input 
-              class="form-input" 
-              v-model="editAgenda.title" 
-              placeholder="请输入议程标题"
-              autocomplete="off"
-            />
+          <!-- 议程编辑表单 -->
+          <div class="edit-form" v-if="selectedAgenda">
+            <div class="form-item">
+              <label class="form-label">议程标题：</label>
+              <input 
+                class="form-input" 
+                v-model="editAgenda.title" 
+                placeholder="请输入议程标题"
+                autocomplete="off"
+                :disabled="agendaLoading"
+              />
+            </div>
+            <div class="form-item">
+              <label class="form-label">议程时间：</label>
+              <input 
+                class="form-input" 
+                type="datetime-local" 
+                v-model="editAgenda.time"
+                :disabled="agendaLoading"
+              />
+            </div>
+            <button class="btn-primary save-btn" @click="saveAgendaEdit" :disabled="agendaLoading || collectLoading">
+              <span v-if="agendaLoading">保存中...</span>
+              <span v-else>保存修改</span>
+            </button>
           </div>
-          <div class="form-item">
-            <label class="form-label">议程时间：</label>
-            <input 
-              class="form-input" 
-              type="datetime-local" 
-              v-model="editAgenda.time"
-            />
-          </div>
-          <button class="btn-primary save-btn" @click="saveAgendaEdit">
-            保存修改
-          </button>
         </div>
       </div>
     </div>
@@ -112,116 +129,37 @@
         ✅ 议程修改成功，通知已更新！
       </div>
     </div>
-  </div>
+    </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useScheduleStore } from '../../stores/scheduleStore'
 import { useAgendaStore } from '../../stores/agendaStore'
 
 const scheduleStore = useScheduleStore()
 const agendaStore = useAgendaStore()
-const { personalSchedule, wishSchedule } = storeToRefs(scheduleStore)
-const { agendaList } = storeToRefs(agendaStore)
-const { updateAgenda, loadAgendaFromLocalStorage } = agendaStore
+
+// 解构响应式数据
+const { personalSchedule, wishSchedule, collectLoading, collectError } = storeToRefs(scheduleStore)
+const { agendaList, agendaLoading, agendaError } = storeToRefs(agendaStore)
+
+// 解构方法
+const { updateAgenda, fetchMyAgendas } = agendaStore
+const { addAgendaEditNotification, toggleFlowStepCollect, calculateCountdown } = scheduleStore
 
 // 页面响应式数据
 const selectedAgendaId = ref('') 
 const selectedAgenda = ref(null) 
 const editAgenda = ref({ title: '', time: '' }) 
 const toastVisible = ref(false) 
-const countdownData = ref({}) 
 let countdownTimer = null 
-let autoClearTimer = null 
 
-// 计算倒计时
-const calculateCountdown = (timeStr) => {
-  if (!timeStr) return '时间未设置'
-  
-  try {
-    let scheduleTime
-    if (timeStr.includes('T')) {
-      scheduleTime = new Date(timeStr)
-    } else if (timeStr.includes(' ')) {
-      const [datePart, timePart] = timeStr.split(' ')
-      const pureTime = timePart.includes('-') ? timePart.split('-')[0].trim() : timePart
-      scheduleTime = new Date(`${datePart}T${pureTime}`)
-    } else if (timeStr.includes('-')) {
-      const pureTime = timeStr.split('-')[0].trim()
-      const today = new Date()
-      const year = today.getFullYear()
-      const month = String(today.getMonth() + 1).padStart(2, '0')
-      const day = String(today.getDate()).padStart(2, '0')
-      scheduleTime = new Date(`${year}-${month}-${day}T${pureTime}`)
-    } else {
-      scheduleTime = new Date(timeStr)
-    }
-    
-    // 验证日期是否有效
-    if (isNaN(scheduleTime.getTime())) {
-      return '时间格式错误'
-    }
-    
-    const now = new Date()
-    const diff = scheduleTime - now
-    
-    // 已过期
-    if (diff < 0) {
-      return '已结束'
-    }
-    
-    // 计算天、时、分、秒
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-    const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-    
-    // 拼接倒计时文本
-    let countdownText = ''
-    if (days > 0) {
-      countdownText += `${days}天`
-    }
-    if (hours > 0 || days > 0) {
-      countdownText += `${hours}时`
-    }
-    if (minutes > 0 || hours > 0 || days > 0) {
-      countdownText += `${minutes}分`
-    }
-    countdownText += `${seconds}秒后开始`
-    
-    return countdownText
-  } catch (error) {
-    console.error('计算倒计时失败:', error)
-    return '时间解析错误'
-  }
-}
+const loading = ref(false)
+const errorMsg = ref('')
 
-// 获取倒计时
-const getCountdown = (timeStr) => {
-  const key = timeStr
-  if (!countdownData.value[key]) {
-    countdownData.value[key] = calculateCountdown(timeStr)
-  }
-  return countdownData.value[key]
-}
-
-// 更新所有倒计时
-const updateAllCountdowns = () => {
-  const newCountdownData = {}
-  // 更新个人专属日程倒计时
-  personalSchedule.value.forEach(item => {
-    newCountdownData[item.time] = calculateCountdown(item.time)
-  })
-  // 更新想听日程倒计时
-  wishSchedule.value.forEach(item => {
-    newCountdownData[item.time] = calculateCountdown(item.time)
-  })
-  countdownData.value = newCountdownData
-}
-
-// 获取日程图标类名
+// 保留：获取日程图标类名
 const getIconClass = (iconName) => {
   switch (iconName) {
     case 'calendar-o': return 'icon-calendar';
@@ -231,29 +169,16 @@ const getIconClass = (iconName) => {
   }
 }
 
-// 计算明天8点的时间
-const getTomorrow8AM = () => {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  tomorrow.setHours(8, 0, 0, 0)
-  return tomorrow.getTime()
-}
-
-// 启动自动清空定时器
-const startAutoClearTimer = () => {
-  const now = new Date().getTime()
-  const tomorrow8AM = getTomorrow8AM()
-  const delay = tomorrow8AM - now
-
-  // 设置定时器:第二天8点清空
-  autoClearTimer = setTimeout(() => {
-    scheduleStore.clearEndedPersonalSchedule()
-    startAutoClearTimer()
-  }, delay)
+// 切换收藏状态
+const toggleCollect = async (agendaId, stepIndex) => {
+  const success = await toggleFlowStepCollect(agendaId, stepIndex)
+  if (!success) {
+    alert(collectError.value || '收藏操作失败，请稍后重试')
+  }
 }
 
 // 保存议程修改
-const saveAgendaEdit = () => {
+const saveAgendaEdit = async () => {
   // 表单校验
   if (!selectedAgenda.value) {
     alert('请先选择要编辑的议程！')
@@ -271,14 +196,19 @@ const saveAgendaEdit = () => {
   // 格式化时间
   const formattedTime = editAgenda.value.time.replace('T', ' ')
 
-  // 更新agendaStore的议程数据
-  updateAgenda(selectedAgenda.value.id, {
+  // 异步更新议程
+  const success = await updateAgenda(selectedAgenda.value.id, {
     title: editAgenda.value.title.trim(),
     time: formattedTime
   })
 
+  if (!success) {
+    alert('议程修改失败，请稍后重试')
+    return
+  }
+
   // 添加议程修改通知
-  scheduleStore.addAgendaEditNotification({
+  addAgendaEditNotification({
     title: editAgenda.value.title.trim(),
     time: formattedTime
   })
@@ -292,19 +222,35 @@ const saveAgendaEdit = () => {
   }, 3000)
 }
 
-// 页面挂载时加载数据
-onMounted(() => {
-  // 加载本地存储的议程数据
-  loadAgendaFromLocalStorage()
-  
-  // 初始化倒计时
-  updateAllCountdowns()
-  
-  // 启动倒计时定时器（每秒更新一次）
-  countdownTimer = setInterval(updateAllCountdowns, 1000)
 
-  // 启动自动清空定时器
-  startAutoClearTimer()
+onMounted(async () => {
+  try {
+    loading.value = true
+    errorMsg.value = ''
+
+    // 从后端拉取议程列表
+    await fetchMyAgendas()
+
+    // 从后端拉取收藏列表
+    await scheduleStore.fetchMyCollects()
+
+    // 启动倒计时定时器
+    countdownTimer = setInterval(() => {
+
+      personalSchedule.value.forEach(item => {
+        item.countdown = calculateCountdown(item.time)
+      })
+      wishSchedule.value.forEach(item => {
+        item.countdown = calculateCountdown(item.time)
+      })
+    }, 1000)
+
+  } catch (err) {
+    errorMsg.value = '数据加载失败，请刷新页面重试'
+    console.error('页面初始化失败:', err)
+  } finally {
+    loading.value = false
+  }
 
   // 监听选中的议程ID
   watch(selectedAgendaId, (newId) => {
@@ -325,10 +271,11 @@ onMounted(() => {
     }
   }, { immediate: false })
 
-  // 监听日程数据变化，实时更新倒计时
-  watch([personalSchedule, wishSchedule], () => {
-    updateAllCountdowns()
-  }, { deep: true })
+  // 监听 Store 错误信息，同步到页面
+  watch([agendaError, collectError], ([agendaErr, collectErr]) => {
+    if (agendaErr) errorMsg.value = agendaErr
+    if (collectErr && !errorMsg.value) errorMsg.value = collectErr
+  })
 })
 
 // 页面卸载时清除定时器
@@ -337,15 +284,12 @@ onUnmounted(() => {
     clearInterval(countdownTimer)
     countdownTimer = null
   }
-  if (autoClearTimer) {
-    clearTimeout(autoClearTimer)
-    autoClearTimer = null
-  }
+
+
 })
 </script>
 
 <style scoped>
-/* 页面样式 */
 .detail-view {
   min-height: 100vh;
   background-color: #f5f5f5;
@@ -357,6 +301,22 @@ onUnmounted(() => {
   padding: 10px;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* 加载中提示 */
+.loading-tip {
+  text-align: center;
+  padding: 30px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+/*错误提示 */
+.error-tip {
+  text-align: center;
+  padding: 30px 0;
+  font-size: 14px;
+  color: #ff4d4f;
 }
 
 /* 通用卡片 */
@@ -422,13 +382,14 @@ onUnmounted(() => {
   padding: 12px 8px;
   border-bottom: 1px solid #f0f0f0;
   position: relative;
+  cursor: pointer; /* 收藏点击手势 */
 }
 
 .cell-item.ended {
   opacity: 0.6;
 }
 
-/* 个人专属日程特殊*/
+/* 个人专属日程*/
 .report-item {
   background-color: #fff;
   padding: 12px;
@@ -559,8 +520,13 @@ onUnmounted(() => {
   transition: background-color 0.3s ease;
 }
 
-.save-btn:hover {
+.save-btn:hover:not(:disabled) {
   background-color: #1677ff;
+}
+
+.save-btn:disabled {
+  background-color: #8cc5ff;
+  cursor: not-allowed;
 }
 
 .toast-mask {

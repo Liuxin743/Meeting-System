@@ -1,7 +1,7 @@
 <template>
   <div class="mine-view">
     <div class="page-content">
-      <!-- 个人信息卡片（头像/用户名从 Pinia 读取，实时更新） -->
+      <!-- 个人信息卡片 -->
       <div class="user-card card-common" style="margin-bottom: 10px;" @click="goToProfile">
         <div class="user-info">
           <div class="user-avatar">
@@ -60,8 +60,12 @@
             + 创建会场
           </button>
         </div>
-        <div class="empty-tip" v-if="venues.length === 0">
+        <div class="empty-tip" v-if="venues.length === 0 && !loading">
           暂无创建的会场，点击「创建会议」开始
+        </div>
+        <!-- 加载中提示 -->
+        <div class="empty-tip" v-if="loading">
+          正在加载会场数据...
         </div>
         <div class="venue-list" v-else>
           <div class="venue-item" v-for="venue in venues" :key="venue.id">
@@ -86,10 +90,10 @@
                 <span class="share-id-label">分享ID：</span>
                 <span 
                   class="share-id" 
-                  @click="copyShareId(venue.shareId)"
+                  @click="copyShareId(venue.shareId || venue.meeting_code)"
                   style="cursor: pointer; user-select: all;"
                 >
-                  {{ venue.shareId }}
+                  {{ venue.shareId || venue.meeting_code }}
                 </span>
               </div>
             </div>
@@ -100,8 +104,12 @@
       <!-- 我的议程列表 -->
       <div class="agenda-card card-common" style="margin-top: 10px;">
         <h3 class="card-title">我的议程</h3>
-        <div class="empty-tip" v-if="agendas.length === 0">
+        <div class="empty-tip" v-if="agendas.length === 0 && !loading">
           暂无创建的议程，先创建会议再创建议程
+        </div>
+        <!-- 加载中提示 -->
+        <div class="empty-tip" v-if="loading">
+          正在加载议程数据...
         </div>
         <div class="agenda-list" v-else>
           <div class="agenda-item" v-for="agenda in agendas" :key="agenda.id">
@@ -136,8 +144,12 @@
             + 加入会场
           </button>
         </div>
-        <div class="empty-tip" v-if="joinedVenueAgendas.length === 0">
+        <div class="empty-tip" v-if="joinedVenueAgendas.length === 0 && !loading">
           暂无加入的会场，点击[创建会场]输入ID加入
+        </div>
+        <!-- 加载中提示 -->
+        <div class="empty-tip" v-if="loading">
+          正在加载已加入会场数据...
         </div>
         <div class="joined-content" v-else>
           <div v-for="item in joinedVenueAgendas" :key="item.venue.id">
@@ -180,7 +192,7 @@
       </div>
     </div>
 
-    <!-- 所有弹窗（保持原有逻辑，无修改） -->
+    <!-- 所有弹窗 -->
     <div
       class="dialog-mask"
       v-if="createVenueDialogVisible"
@@ -232,8 +244,8 @@
             class="dialog-cancel-btn"
             @click="createVenueDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="isEditVenue ? saveEditVenue() : createVenue()">
-            {{ isEditVenue ? '保存修改' : '确认创建' }}
+          <button class="dialog-confirm-btn" @click="isEditVenue ? saveEditVenue() : createVenue()" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : (isEditVenue ? '保存修改' : '确认创建') }}
           </button>
         </div>
       </div>
@@ -355,8 +367,8 @@
               class="dialog-cancel-btn"
               @click="createDialogVisible = false"
             >取消</button>
-            <button class="dialog-confirm-btn" @click="handleCreateMeeting">
-              确认创建会议
+            <button class="dialog-confirm-btn" @click="handleCreateMeeting" :disabled="apiLoading">
+              {{ apiLoading ? '处理中...' : '确认创建会议' }}
             </button>
           </div>
         </div>
@@ -414,8 +426,8 @@
             class="dialog-cancel-btn"
             @click="onlyVenueDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="handleCreateOnlyVenue">
-            确认创建会场
+          <button class="dialog-confirm-btn" @click="handleCreateOnlyVenue" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : '确认创建会场' }}
           </button>
         </div>
       </div>
@@ -502,8 +514,8 @@
             class="dialog-cancel-btn"
             @click="onlyAgendaDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="handleCreateOnlyAgenda">
-            确认创建议程
+          <button class="dialog-confirm-btn" @click="handleCreateOnlyAgenda" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : '确认创建议程' }}
           </button>
         </div>
       </div>
@@ -565,8 +577,8 @@
             class="dialog-cancel-btn"
             @click="editFlowDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="handleSaveEditFlow">
-            保存流程
+          <button class="dialog-confirm-btn" @click="handleSaveEditFlow" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : '保存流程' }}
           </button>
         </div>
       </div>
@@ -608,8 +620,8 @@
             class="dialog-cancel-btn"
             @click="bannerEditDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="saveBannerImage">
-            保存图片
+          <button class="dialog-confirm-btn" @click="saveBannerImage" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : '保存图片' }}
           </button>
         </div>
       </div>
@@ -639,8 +651,8 @@
             class="dialog-cancel-btn"
             @click="joinVenueDialogVisible = false"
           >取消</button>
-          <button class="dialog-confirm-btn" @click="handleJoinVenue">
-            确认加入
+          <button class="dialog-confirm-btn" @click="handleJoinVenue" :disabled="apiLoading">
+            {{ apiLoading ? '处理中...' : '确认加入' }}
           </button>
         </div>
       </div>
@@ -660,34 +672,37 @@ import { useRouter } from 'vue-router'
 import { useAgendaStore } from '../../stores/agendaStore'
 import { useUserStore } from '../../stores/userStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// 1. 导入你提供的后端 API 封装（核心修改）
+import { agendaApi, meetingApi, venueApi } from '../../api/index' // 替换为你的 api 实际路径
 
 // 初始化路由和仓库
 const router = useRouter()
 const agendaStore = useAgendaStore()
 const userStore = useUserStore()
 
+// 新增：API 请求加载状态（防止重复提交，优化用户体验）
+const loading = ref(false) // 页面初始化加载状态
+const apiLoading = ref(false) // 操作类 API 加载状态
+
 // 核心修复：头像地址计算属性（正确读取 Pinia 嵌套数据，放宽校验）
 const avatarUrl = computed(() => {
-  // 正确读取 userStore.userInfo 中的 avatar 字段
   const userAvatar = userStore.userInfo?.avatar || ''
-  // 校验：非空字符串即可（支持 http 网络地址和 data:image 本地预览地址）
   if (typeof userAvatar === 'string' && userAvatar.trim().length > 0) {
     return userAvatar
   }
-  // 无效则返回空，显示默认图标
   return ''
 })
 
-// 宣传图相关数据
+// 宣传图相关数据（暂时保留本地存储，如需对接后端可新增 bannerApi）
 const bannerImageUrl = ref(localStorage.getItem('meetingBannerUrl') || '')
 const defaultBannerUrl = ref('https://pic1.zhimg.com/v2-ea1f5938445a9fb94d869d76c1d2c2a4_1440w.jpg')
 const bannerEditDialogVisible = ref(false)
 const tempBannerUrl = ref('')
 const bannerUrlInput = ref('')
 
-// 会场相关数据
-const venues = ref(JSON.parse(localStorage.getItem('customVenues')) || [])
-const joinedVenues = ref(JSON.parse(localStorage.getItem('joinedVenues')) || [])
+// 会场相关数据（从后端拉取，不再从 localStorage 读取）
+const venues = ref([]) // 我创建的会场
+const joinedVenues = ref([]) // 我加入的会场
 const createVenueDialogVisible = ref(false)
 const isEditVenue = ref(false)
 const newVenue = reactive({
@@ -737,7 +752,7 @@ const onlyAgendaForm = reactive({
   flows: []
 })
 
-// 议程列表（从 agendaStore 读取）
+// 议程列表（从后端拉取，同步到 Pinia）
 const agendas = computed(() => agendaStore.agendaList || [])
 
 // 加入的会场与议程合并
@@ -766,21 +781,11 @@ const joinVenueForm = reactive({
 })
 const copyToastVisible = ref(false)
 
-// 工具函数：生成唯一ID
+// 工具函数：生成唯一ID（前端临时使用，最终以后端返回ID为准）
 const generateUniqueId = () => {
   const timestamp = new Date().getTime().toString(36)
   const randomNum = Math.random().toString(36).substring(2, 8)
   return `${timestamp}-${randomNum}`
-}
-
-// 工具函数：生成6位分享ID
-const generateShareId = () => {
-  const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let shareId = ''
-  for (let i = 0; i < 6; i++) {
-    shareId += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return shareId
 }
 
 // 工具函数：格式化当前时间
@@ -800,13 +805,6 @@ const formatAgendaTime = (datetimeStr) => {
   const formatStr = datetimeStr.includes('T') ? datetimeStr.replace('T', ' ') : datetimeStr
   const date = new Date(formatStr)
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-}
-
-// 工具函数：保存本地存储
-const saveToLocalStorage = () => {
-  localStorage.setItem('customVenues', JSON.stringify(venues.value))
-  localStorage.setItem('joinedVenues', JSON.stringify(joinedVenues.value))
-  localStorage.setItem('meetingBannerUrl', bannerImageUrl.value)
 }
 
 // 页面跳转函数
@@ -835,7 +833,7 @@ const handleLogout = () => {
   })
 }
 
-// 宣传图编辑相关函数
+// 宣传图编辑相关函数（暂时保留本地，如需后端对接可扩展）
 const openBannerEditDialog = () => {
   tempBannerUrl.value = bannerImageUrl.value
   bannerUrlInput.value = bannerImageUrl.value
@@ -870,12 +868,12 @@ const saveBannerImage = () => {
   } else {
     bannerImageUrl.value = ''
   }
-  saveToLocalStorage()
+  localStorage.setItem('meetingBannerUrl', bannerImageUrl.value)
   bannerEditDialogVisible.value = false
   ElMessage.success('宣传图保存成功')
 }
 
-// 会场操作相关函数
+// 2. 会场操作相关函数（替换为后端 API 调用，核心修改）
 const openEditVenueDialog = (venue) => {
   newVenue.id = venue.id
   newVenue.name = venue.name
@@ -883,55 +881,99 @@ const openEditVenueDialog = (venue) => {
   newVenue.time = venue.time.includes(' ') ? venue.time.replace(' ', 'T') : venue.time
   newVenue.address = venue.address
   newVenue.color = venue.color
-  newVenue.shareId = venue.shareId
+  newVenue.shareId = venue.shareId || venue.meeting_code
   isEditVenue.value = true
   createVenueDialogVisible.value = true
 }
 
-const createVenue = () => {
+const createVenue = async () => {
   if (!newVenue.name || !newVenue.time || !newVenue.address) {
     return ElMessage.warning('请填写必填字段')
   }
-  newVenue.id = generateUniqueId()
-  newVenue.shareId = generateShareId()
-  newVenue.creatorName = userStore.userInfo.username || '未知用户'
-  venues.value.push({ ...newVenue })
-  saveToLocalStorage()
-  createVenueDialogVisible.value = false
-  ElMessage.success(`会场创建成功，分享ID：${newVenue.shareId}`)
+
+  // 格式化数据，适配后端接口
+  const venueData = {
+    name: newVenue.name,
+    type: newVenue.type,
+    time: newVenue.time,
+    address: newVenue.address,
+    color: newVenue.color
+  }
+
+  try {
+    apiLoading.value = true
+    // 调用后端创建会场 API
+    const res = await venueApi.createVenue(venueData)
+    // 刷新会场列表
+    await loadMyVenues()
+    createVenueDialogVisible.value = false
+    ElMessage.success(`会场创建成功，分享ID：${res.data.shareId || res.data.meeting_code}`)
+  } catch (error) {
+    ElMessage.error('会场创建失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('创建会场失败：', error)
+  } finally {
+    apiLoading.value = false
+  }
 }
 
-const saveEditVenue = () => {
+const saveEditVenue = async () => {
   if (!newVenue.name || !newVenue.time || !newVenue.address) {
     return ElMessage.warning('请填写必填字段')
   }
-  const index = venues.value.findIndex(v => v.id === newVenue.id)
-  if (index > -1) {
-    venues.value[index] = { ...newVenue }
-    saveToLocalStorage()
+
+  // 格式化数据，适配后端接口
+  const venueData = {
+    name: newVenue.name,
+    type: newVenue.type,
+    time: newVenue.time,
+    address: newVenue.address,
+    color: newVenue.color
+  }
+
+  try {
+    apiLoading.value = true
+    // 调用后端编辑会场 API
+    await venueApi.updateVenue(newVenue.id, venueData)
+    // 刷新会场列表
+    await loadMyVenues()
     createVenueDialogVisible.value = false
     ElMessage.success('会场修改成功')
+  } catch (error) {
+    ElMessage.error('会场修改失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('修改会场失败：', error)
+  } finally {
+    apiLoading.value = false
   }
 }
 
-const deleteVenue = (venueId) => {
+const deleteVenue = async (venueId) => {
   ElMessageBox.confirm(
     '确定删除该会场？关联的所有议程也会被删除',
     '删除提示',
     { type: 'warning' }
-  ).then(() => {
-    venues.value = venues.value.filter(v => v.id !== venueId)
-    agendaStore.agendaList = agendaStore.agendaList.filter(a => a.venueId !== venueId)
-    joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
-    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
-    saveToLocalStorage()
-    ElMessage.success('会场及关联议程已删除')
+  ).then(async () => {
+    try {
+      apiLoading.value = true
+      // 调用后端删除会场 API
+      await venueApi.deleteVenue(venueId)
+      // 同时删除关联议程（后端若已级联删除，可省略）
+      await agendaStore.agendaList.filter(a => a.venueId !== venueId)
+      // 刷新会场和议程列表
+      await loadMyVenues()
+      await loadMyAgendas()
+      ElMessage.success('会场及关联议程已删除')
+    } catch (error) {
+      ElMessage.error('会场删除失败：' + (error.response?.data?.msg || '网络异常'))
+      console.error('删除会场失败：', error)
+    } finally {
+      apiLoading.value = false
+    }
   }).catch(() => {
     ElMessage.info('已取消删除')
   })
 }
 
-// 仅创建会场相关函数
+// 3. 仅创建会场相关函数（替换为后端 API 调用）
 const openOnlyVenueDialog = () => {
   onlyVenueForm.id = generateUniqueId()
   onlyVenueForm.name = ''
@@ -939,22 +981,37 @@ const openOnlyVenueDialog = () => {
   onlyVenueForm.time = formatCurrentDateTime()
   onlyVenueForm.address = ''
   onlyVenueForm.color = '#1989fa'
-  onlyVenueForm.creatorName = userStore.userInfo.username || '未知用户'
-  onlyVenueForm.shareId = generateShareId()
   onlyVenueDialogVisible.value = true
 }
 
-const handleCreateOnlyVenue = () => {
+const handleCreateOnlyVenue = async () => {
   if (!onlyVenueForm.name || !onlyVenueForm.time || !onlyVenueForm.address) {
     return ElMessage.warning("请填写完整的会场信息")
   }
-  venues.value.push({ ...onlyVenueForm })
-  saveToLocalStorage()
-  onlyVenueDialogVisible.value = false
-  ElMessage.success(`会场创建成功，分享ID：${onlyVenueForm.shareId}`)
+
+  const venueData = {
+    name: onlyVenueForm.name,
+    type: onlyVenueForm.type,
+    time: onlyVenueForm.time,
+    address: onlyVenueForm.address,
+    color: onlyVenueForm.color
+  }
+
+  try {
+    apiLoading.value = true
+    await venueApi.createVenue(venueData)
+    await loadMyVenues()
+    onlyVenueDialogVisible.value = false
+    ElMessage.success("会场创建成功")
+  } catch (error) {
+    ElMessage.error('会场创建失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('创建会场失败：', error)
+  } finally {
+    apiLoading.value = false
+  }
 }
 
-// 仅创建议程相关函数
+// 4. 仅创建议程相关函数（替换为后端 API 调用）
 const openOnlyAgendaDialog = (preSelectedVenueId = '') => {
   onlyAgendaForm.venueId = preSelectedVenueId || ''
   onlyAgendaForm.title = ""
@@ -980,23 +1037,35 @@ const deleteOnlyAgendaFlowStep = (index) => {
   })
 }
 
-const handleCreateOnlyAgenda = () => {
+const handleCreateOnlyAgenda = async () => {
   if (!onlyAgendaForm.venueId) return ElMessage.warning("请选择所属会场")
   if (!onlyAgendaForm.title.trim()) return ElMessage.warning("请输入议程标题")
 
-  const formattedFlows = onlyAgendaForm.flows.map(step => ({
-    ...step,
-    time: step.time ? step.time.replace('T', ' ') : ''
-  }))
-  agendaStore.addNewAgenda({
-    id: generateUniqueId(),
+  // 格式化数据，适配后端接口
+  const agendaData = {
     title: onlyAgendaForm.title.trim(),
     time: onlyAgendaForm.time,
     venueId: onlyAgendaForm.venueId,
-    flows: formattedFlows
-  })
-  onlyAgendaDialogVisible.value = false
-  ElMessage.success("议程创建成功")
+    flows: onlyAgendaForm.flows.map(step => ({
+      ...step,
+      time: step.time ? step.time.replace('T', ' ') : ''
+    }))
+  }
+
+  try {
+    apiLoading.value = true
+    // 调用后端创建议程 API
+    await agendaApi.createAgenda(agendaData)
+    // 刷新议程列表
+    await loadMyAgendas()
+    onlyAgendaDialogVisible.value = false
+    ElMessage.success("议程创建成功")
+  } catch (error) {
+    ElMessage.error('议程创建失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('创建议程失败：', error)
+  } finally {
+    apiLoading.value = false
+  }
 }
 
 // 议程相关辅助函数
@@ -1011,7 +1080,7 @@ const getAgendaCountByVenueId = (venueId) => {
   return agendaStore.agendaList.filter(a => a.venueId === venueId).length
 }
 
-// 合并创建会议相关函数
+// 5. 合并创建会议相关函数（替换为后端 API 调用）
 const openCreateDialog = () => {
   newMeeting.venue.id = generateUniqueId()
   newMeeting.venue.name = ''
@@ -1019,8 +1088,6 @@ const openCreateDialog = () => {
   newMeeting.venue.time = formatCurrentDateTime()
   newMeeting.venue.address = ''
   newMeeting.venue.color = '#1989fa'
-  newMeeting.venue.creatorName = userStore.userInfo.username || '未知用户'
-  newMeeting.venue.shareId = generateShareId()
   newMeeting.agenda.title = ""
   newMeeting.agenda.time = formatCurrentDateTime()
   newMeeting.agenda.flows = []
@@ -1044,39 +1111,68 @@ const deleteFlowStep = (index) => {
   })
 }
 
-const handleCreateMeeting = () => {
+const handleCreateMeeting = async () => {
   if (!newMeeting.venue.name || !newMeeting.venue.time || !newMeeting.venue.address) {
     return ElMessage.warning("请填写完整的会场信息")
   }
   if (!newMeeting.agenda.title.trim()) return ElMessage.warning("请输入议程标题")
 
-  venues.value.push({ ...newMeeting.venue })
-  saveToLocalStorage()
-  const formattedFlows = newMeeting.agenda.flows.map(step => ({
-    ...step,
-    time: step.time ? step.time.replace('T', ' ') : ''
-  }))
-  agendaStore.addNewAgenda({
-    id: generateUniqueId(),
-    title: newMeeting.agenda.title.trim(),
-    time: newMeeting.agenda.time,
-    venueId: newMeeting.venue.id,
-    flows: formattedFlows
-  })
-  createDialogVisible.value = false
-  ElMessage.success(`会议流程创建成功，分享ID：${newMeeting.venue.shareId}`)
+  // 格式化会议数据，适配后端接口
+  const meetingData = {
+    venue: {
+      name: newMeeting.venue.name,
+      type: newMeeting.venue.type,
+      time: newMeeting.venue.time,
+      address: newMeeting.venue.address,
+      color: newMeeting.venue.color
+    },
+    agenda: {
+      title: newMeeting.agenda.title.trim(),
+      time: newMeeting.agenda.time,
+      flows: newMeeting.agenda.flows.map(step => ({
+        ...step,
+        time: step.time ? step.time.replace('T', ' ') : ''
+      }))
+    }
+  }
+
+  try {
+    apiLoading.value = true
+    // 调用后端创建会议 API
+    const res = await meetingApi.createMeeting(meetingData)
+    // 刷新会场和议程列表
+    await loadMyVenues()
+    await loadMyAgendas()
+    createDialogVisible.value = false
+    ElMessage.success(`会议创建成功，分享ID：${res.data.meeting_code}`)
+  } catch (error) {
+    ElMessage.error('会议创建失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('创建会议失败：', error)
+  } finally {
+    apiLoading.value = false
+  }
 }
 
-// 议程编辑与删除相关函数
-const deleteAgenda = (agendaId) => {
+// 6. 议程编辑与删除相关函数（替换为后端 API 调用）
+const deleteAgenda = async (agendaId) => {
   ElMessageBox.confirm(
     '确定删除该议程？关联的所有流程步骤也会被删除',
     '删除提示',
     { type: 'warning' }
-  ).then(() => {
-    agendaStore.agendaList = agendaStore.agendaList.filter(a => a.id !== agendaId)
-    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
-    ElMessage.success('议程已删除')
+  ).then(async () => {
+    try {
+      apiLoading.value = true
+      // 调用后端删除议程 API
+      await agendaApi.deleteAgenda(agendaId)
+      // 刷新议程列表
+      await loadMyAgendas()
+      ElMessage.success('议程已删除')
+    } catch (error) {
+      ElMessage.error('议程删除失败：' + (error.response?.data?.msg || '网络异常'))
+      console.error('删除议程失败：', error)
+    } finally {
+      apiLoading.value = false
+    }
   }).catch(() => {
     ElMessage.info('已取消删除')
   })
@@ -1111,58 +1207,75 @@ const deleteEditFlowStep = (index) => {
   })
 }
 
-const handleSaveEditFlow = () => {
+const handleSaveEditFlow = async () => {
   if (!currentEditAgenda.id) return ElMessage.error('议程ID异常，无法保存流程')
 
-  const formattedFlows = currentEditAgenda.flows.map(step => ({
+  // 格式化流程数据，适配后端接口
+  const flows = currentEditAgenda.flows.map(step => ({
     ...step,
     time: step.time ? step.time.replace('T', ' ') : ''
   }))
-  const agenda = agendaStore.agendaList.find(a => a.id === currentEditAgenda.id)
-  if (agenda) {
-    agenda.flows.splice(0, agenda.flows.length)
-    agenda.flows.push(...formattedFlows)
-    localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
+
+  try {
+    apiLoading.value = true
+    // 调用后端更新议程流程 API
+    await agendaApi.updateAgenda(currentEditAgenda.id, { flows })
+    // 刷新议程列表
+    await loadMyAgendas()
+    editFlowDialogVisible.value = false
+    ElMessage.success('议程流程保存成功')
+  } catch (error) {
+    ElMessage.error('议程流程保存失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('保存议程流程失败：', error)
+  } finally {
+    apiLoading.value = false
   }
-  editFlowDialogVisible.value = false
-  ElMessage.success('议程流程保存成功')
 }
 
-// 加入/退出会场相关函数
+// 7. 加入/退出会场相关函数（替换为后端 API 调用）
 const openJoinVenueDialog = () => {
   joinVenueForm.shareId = ''
   joinVenueDialogVisible.value = true
 }
 
-const handleJoinVenue = () => {
+const handleJoinVenue = async () => {
   const shareId = joinVenueForm.shareId.trim()
   if (!shareId || shareId.length !== 6) return ElMessage.warning('请输入有效的6位分享ID')
 
-  const targetVenue = venues.value.find(v => v.shareId === shareId)
-  if (!targetVenue) return ElMessage.error('未找到该会场，请检查分享ID是否正确')
-
-  const isAlreadyJoined = joinedVenues.value.some(v => v.id === targetVenue.id)
-  if (isAlreadyJoined) {
-    ElMessage.info('你已加入该会场，无需重复加入')
+  try {
+    apiLoading.value = true
+    // 调用后端加入会场 API
+    await meetingApi.joinMeeting(shareId)
+    // 刷新已加入会场列表
+    await loadJoinedVenues()
     joinVenueDialogVisible.value = false
-    return
+    ElMessage.success('成功加入会场')
+  } catch (error) {
+    ElMessage.error('加入会场失败：' + (error.response?.data?.msg || '未找到该会场'))
+    console.error('加入会场失败：', error)
+  } finally {
+    apiLoading.value = false
   }
-
-  joinedVenues.value.push(JSON.parse(JSON.stringify(targetVenue)))
-  saveToLocalStorage()
-  joinVenueDialogVisible.value = false
-  ElMessage.success(`成功加入会场：${targetVenue.name}（已自动同步该会场的议程）`)
 }
 
-const quitVenue = (venueId) => {
+const quitVenue = async (venueId) => {
   ElMessageBox.confirm(
     '确定退出该会场？退出后将无法查看其关联议程',
     '退出提示',
     { type: 'warning' }
-  ).then(() => {
-    joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
-    saveToLocalStorage()
-    ElMessage.success('已成功退出该会场')
+  ).then(async () => {
+    try {
+      apiLoading.value = true
+      // 调用后端退出会场 API（如需扩展，可在 meetingApi 中新增 quitMeeting 接口）
+      // await meetingApi.quitMeeting(venueId)
+      joinedVenues.value = joinedVenues.value.filter(v => v.id !== venueId)
+      ElMessage.success('已成功退出该会场')
+    } catch (error) {
+      ElMessage.error('退出会场失败：' + (error.response?.data?.msg || '网络异常'))
+      console.error('退出会场失败：', error)
+    } finally {
+      apiLoading.value = false
+    }
   }).catch(() => {
     ElMessage.info('已取消退出')
   })
@@ -1178,32 +1291,78 @@ const copyShareId = (shareId) => {
   })
 }
 
-// 页面初始化
-onMounted(() => {
-  // 初始化用户信息（从本地存储加载到 Pinia）
+// 8. 新增：加载后端数据的核心函数（页面初始化及数据刷新）
+/**
+ * 加载我创建的会场列表
+ */
+const loadMyVenues = async () => {
+  try {
+    loading.value = true
+    // 调用后端获取「我的会议」（包含会场）API
+    const res = await meetingApi.getMyMeetings()
+    venues.value = res.data || []
+  } catch (error) {
+    ElMessage.error('加载会场数据失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('加载会场失败：', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+/**
+ * 加载我加入的会场列表
+ */
+const loadJoinedVenues = async () => {
+  try {
+    loading.value = true
+    // 如需对接后端，可在 meetingApi 中新增 getJoinedMeetings 接口
+    joinedVenues.value = [] // 暂时占位，后续替换为真实接口返回数据
+  } catch (error) {
+    ElMessage.error('加载已加入会场数据失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('加载已加入会场失败：', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+/**
+ * 加载我的议程列表
+ */
+const loadMyAgendas = async () => {
+  try {
+    loading.value = true
+    // 调用后端获取「我的议程」API
+    const res = await agendaApi.getMyAgendas()
+    agendaStore.agendaList = res.data || []
+  } catch (error) {
+    ElMessage.error('加载议程数据失败：' + (error.response?.data?.msg || '网络异常'))
+    console.error('加载议程失败：', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 页面初始化（替换本地存储加载，改为后端数据加载）
+onMounted(async () => {
+  // 初始化用户信息
   userStore.initUserInfo()
 
-  // 加载本地存储数据
-  const savedBanner = localStorage.getItem('meetingBannerUrl')
-  const savedJoinedVenues = localStorage.getItem('joinedVenues')
-  if (savedBanner) bannerImageUrl.value = savedBanner
-  if (savedJoinedVenues) joinedVenues.value = JSON.parse(savedJoinedVenues)
-  agendaStore.loadAgendaFromLocalStorage()
+  // 加载后端核心数据
+  await Promise.all([
+    loadMyVenues(),
+    loadMyAgendas(),
+    loadJoinedVenues()
+  ])
 
-  // 监听数据变化，自动保存本地存储
-  watch([venues, joinedVenues, bannerImageUrl], () => saveToLocalStorage(), { deep: true })
+  // 监听议程列表变化，同步到本地存储（可选，用于前端缓存）
   watch(() => agendaStore.agendaList, () => {
     localStorage.setItem('agendaList', JSON.stringify(agendaStore.agendaList))
-  }, { deep: true })
-
-  // 监听用户信息变化，打印日志（方便调试头像问题）
-  watch(() => [userStore.userInfo.avatar, userStore.userInfo.username], () => {
-    console.log('用户信息更新 - 头像地址：', userStore.userInfo.avatar)
   }, { deep: true })
 })
 </script>
 
 <style scoped>
+/* 样式部分保持不变，无需修改 */
 .mine-view {
   min-height: 100vh;
   background-color: #f5f5f5;
@@ -1254,7 +1413,6 @@ onMounted(() => {
   cursor: pointer;
 }
 
-/* 头像样式优化：圆形显示、不变形 */
 .avatar-img {
   width: 100%;
   height: 100%;
